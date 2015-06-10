@@ -1,16 +1,9 @@
 Texture2D       SrcTextureA     : register( t0 );
 SamplerState    PointSampler    : register( s0 );
 
-struct VSInput
-{
-    float2 m_pos    : POSITION;
-    float2 m_uv     : TEXCOORD0;
-};
-
 struct PSInput
 {
-    float4 m_pos    : SV_POSITION;
-    float2 m_uv     : TEXCOORD0;
+    float4 m_pos : SV_POSITION;
 };
 
 cbuffer MainCB : register( b0 )
@@ -26,11 +19,10 @@ PSInput VSMain( uint vertexID : SV_VertexID )
 {
     PSInput output;
 
-    float x = ( vertexID >> 1 );
-    float y = 1.0 - ( vertexID & 1 );
+    float x = vertexID >> 1;
+    float y = vertexID & 1;
 
-    output.m_pos    = float4( 2.0 * x - 1.0, -2.0 * y + 1.0, 0.0, 1.0 );
-    output.m_uv     = float2( x, y );
+    output.m_pos = float4( 2.0f * x - 1.0f, 2.0f * y - 1.0f, 0.0f, 1.0f );
 
     return output;
 }
