@@ -27,14 +27,14 @@ PSInput VSMain( uint vertexID : SV_VertexID )
     return output;
 }
 
-int Quantize( float x )
+float Quantize( float x )
 {
-    return ( f32tof16( x ) << 10 ) / ( 0x7bff + 1 );
+    return ( f32tof16( x ) << 10 ) / ( 0x7bff + 1.0f );
 }
 
-int3 Quantize( float3 x )
+float3 Quantize( float3 x )
 {
-    return ( f32tof16( x ) << 10 ) / ( 0x7bff + 1 );
+    return ( f32tof16( x ) << 10 ) / ( 0x7bff + 1.0f );
 }
 
 float Luminance( float3 color )
@@ -43,10 +43,10 @@ float Luminance( float3 color )
     return dot( color, float3( 0.299f, 0.587f, 0.114f ) );
 }
 
-int ComputeIndex( int texelLum, int endPoint0Lum, int endPoint1Lum )
+uint ComputeIndex( float texelLum, float endPoint0Lum, float endPoint1Lum )
 {
-    float r = ( texelLum - endPoint0Lum ) / float( endPoint1Lum - endPoint0Lum );
-    return (int) clamp( r * 14.933333f + 0.033333f + 0.5f, 0.0f, 15.0f );
+    float r = ( texelLum - endPoint0Lum ) / ( endPoint1Lum - endPoint0Lum );
+    return (uint) clamp( r * 14.933333f + 0.033333f + 0.5f, 0.0f, 15.0f );
 }
 
 uint4 PSMain( PSInput i ) : SV_Target
@@ -109,24 +109,24 @@ uint4 PSMain( PSInput i ) : SV_Target
         blockMaxLum = max( blockMaxLum, texelLum );
     }
 
-    int endPoint0Lum    = Quantize( blockMinLum );
-    int endPoint1Lum    = Quantize( blockMaxLum );
-    int3 endpoint0      = Quantize( blockMin );
-    int3 endpoint1      = Quantize( blockMax );
+    float endPoint0Lum  = Quantize( blockMinLum );
+    float endPoint1Lum  = Quantize( blockMaxLum );
+    float3 endpoint0    = Quantize( blockMin );
+    float3 endpoint1    = Quantize( blockMax );
 
     uint indices[ 16 ] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 
     // check if endpoint swap is required
-    int texelLum = Quantize( Luminance( texels[ 0 ] ) );
+    float texelLum = Quantize( Luminance( texels[ 0 ] ) );
     indices[ 0 ] = ComputeIndex( texelLum, endPoint0Lum, endPoint1Lum );
     if ( indices[ 0 ] > 7 )
     {
-        uint tmp = endPoint0Lum;
+        float tmp = endPoint0Lum;
         endPoint0Lum = endPoint1Lum;
         endPoint1Lum = tmp;
 
-        uint3 tmp2 = endpoint0;
+        float3 tmp2 = endpoint0;
         endpoint0 = endpoint1;
         endpoint1 = tmp2;
 
@@ -137,7 +137,7 @@ uint4 PSMain( PSInput i ) : SV_Target
     // compute indices
     for ( uint j = 1; j < 16; ++j )
     {
-        int texelLum = Quantize( Luminance( texels[ j ] ) );
+        float texelLum = Quantize( Luminance( texels[ j ] ) );
         indices[ j ] = ComputeIndex( texelLum, endPoint0Lum, endPoint1Lum );
     }
 
@@ -146,14 +146,14 @@ uint4 PSMain( PSInput i ) : SV_Target
     uint4 block = uint4( 0, 0, 0, 0 );
     block.x |= 0x03;
     // endpoints
-    block.x |= endpoint0.x << 5;
-    block.x |= endpoint0.y << 15;
-    block.x |= endpoint0.z << 25;
-    block.y |= endpoint0.z >> 7;
-    block.y |= endpoint1.x << 3;
-    block.y |= endpoint1.y << 13;
-    block.y |= endpoint1.z << 23;
-    block.z |= endpoint1.z >> 9;
+    block.x |= (uint) endpoint0.x << 5;
+    block.x |= (uint) endpoint0.y << 15;
+    block.x |= (uint) endpoint0.z << 25;
+    block.y |= (uint) endpoint0.z >> 7;
+    block.y |= (uint) endpoint1.x << 3;
+    block.y |= (uint) endpoint1.y << 13;
+    block.y |= (uint) endpoint1.z << 23;
+    block.z |= (uint) endpoint1.z >> 9;
     // indices
     block.z |= indices[ 0 ] << 1;
     block.z |= indices[ 1 ] << 4;
