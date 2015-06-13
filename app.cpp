@@ -461,8 +461,8 @@ void CApp::OnResize()
 {
     RECT clientRect;
     GetClientRect( m_windowHandle, &clientRect );
-    unsigned const newBackbufferWidth  = clientRect.right  - clientRect.left;
-    unsigned const newBackbufferHeight = clientRect.bottom - clientRect.top;
+    unsigned const newBackbufferWidth  = max( clientRect.right  - clientRect.left, 64 );
+    unsigned const newBackbufferHeight = max( clientRect.bottom - clientRect.top,  64 );
 
     if ( m_backbufferWidth != newBackbufferWidth &&  m_backbufferHeight != newBackbufferHeight )
     {
