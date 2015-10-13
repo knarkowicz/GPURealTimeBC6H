@@ -102,7 +102,7 @@ bool CApp::Init( HWND windowHandle )
     ZeroMemory( &swapDesc, sizeof( swapDesc ) );
     swapDesc.BufferDesc.Width                   = m_backbufferWidth;
     swapDesc.BufferDesc.Height                  = m_backbufferHeight;
-    swapDesc.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM;
+    swapDesc.BufferDesc.Format                  = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
     swapDesc.BufferDesc.RefreshRate.Numerator   = 60;
     swapDesc.BufferDesc.RefreshRate.Denominator = 1;
     swapDesc.BufferUsage                        = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -468,7 +468,7 @@ void CApp::OnResize()
     {
         m_ctx->ClearState();
         SAFE_RELEASE( m_backBufferView );
-        m_swapChain->ResizeBuffers( 2, newBackbufferWidth, newBackbufferHeight, DXGI_FORMAT_R8G8B8A8_UNORM, 0 );
+        m_swapChain->ResizeBuffers( 2, newBackbufferWidth, newBackbufferHeight, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 0 );
 
         ID3D11Texture2D* backBuffer = nullptr;
         HRESULT hr = m_swapChain->GetBuffer( 0, __uuidof( ID3D11Texture2D ), (LPVOID*) &backBuffer );
