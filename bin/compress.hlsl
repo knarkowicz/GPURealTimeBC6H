@@ -37,15 +37,9 @@ float3 Quantize( float3 x )
     return ( f32tof16( x ) << 10 ) / ( 0x7bff + 1.0f );
 }
 
-float Luminance( float3 color )
+uint ComputeIndex( float texelPos, float endPoint0Pos, float endPoint1Pos )
 {
-    //return dot( color, float3( 1.0f, 1.0f, 1.0f ) );
-    return dot( color, float3( 0.299f, 0.587f, 0.114f ) );
-}
-
-uint ComputeIndex( float texelLum, float endPoint0Lum, float endPoint1Lum )
-{
-    float r = ( texelLum - endPoint0Lum ) / ( endPoint1Lum - endPoint0Lum );
+    float r = ( texelPos - endPoint0Pos ) / ( endPoint1Pos - endPoint0Pos );
     return (uint) clamp( r * 14.933333f + 0.033333f + 0.5f, 0.0f, 15.0f );
 }
 
@@ -93,40 +87,36 @@ uint4 PSMain( PSInput i ) : SV_Target
     texels[ 15 ]    = float3( block3X.y, block3Y.y, block3Z.y );
 
 
-    // compute endpoints by picking texel with lowest and highest luminance
-    float3 blockMin     = texels[ 0 ];
-    float3 blockMax     = texels[ 0 ];
-    float blockMinLum   = Luminance( blockMin );
-    float blockMaxLum   = Luminance( blockMax );
+    // compute endpoints (min/max RGB bbox)
+    float3 blockMin = texels[ 0 ];
+    float3 blockMax = texels[ 0 ];
     [unroll]
     for ( uint i = 1; i < 16; ++i )
     {
-        float texelLum  = Luminance( texels[ i ] );
-
-        blockMin = texelLum < blockMinLum ? texels[ i ] : blockMin;
-        blockMax = texelLum > blockMaxLum ? texels[ i ] : blockMax;
-
-        blockMinLum = min( blockMinLum, texelLum );
-        blockMaxLum = max( blockMaxLum, texelLum );
+        blockMin = min( blockMin, texels[ i ] );
+        blockMax = max( blockMax, texels[ i ] );
     }
 
-    float endPoint0Lum  = f32tof16( blockMinLum );
-    float endPoint1Lum  = f32tof16( blockMaxLum );
+    float3 blockDir = blockMax - blockMin;
+    blockDir = blockDir / ( blockDir.x + blockDir.y + blockDir.z );
+
     float3 endpoint0    = Quantize( blockMin );
     float3 endpoint1    = Quantize( blockMax );
+    float endPoint0Pos  = f32tof16( dot( blockMin, blockDir ) );
+    float endPoint1Pos  = f32tof16( dot( blockMax, blockDir ) );
 
     uint indices[ 16 ] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 
     // check if endpoint swap is required
-    float texelLum = f32tof16( Luminance( texels[ 0 ] ) );
-    indices[ 0 ] = ComputeIndex( texelLum, endPoint0Lum, endPoint1Lum );
+    float texelPos = f32tof16( dot( texels[ 0 ], blockDir ) );
+    indices[ 0 ] = ComputeIndex( texelPos, endPoint0Pos, endPoint1Pos );
     [flatten]
     if ( indices[ 0 ] > 7 )
     {
-        float tmp = endPoint0Lum;
-        endPoint0Lum = endPoint1Lum;
-        endPoint1Lum = tmp;
+        float tmp = endPoint0Pos;
+        endPoint0Pos = endPoint1Pos;
+        endPoint1Pos = tmp;
 
         float3 tmp2 = endpoint0;
         endpoint0 = endpoint1;
@@ -140,8 +130,8 @@ uint4 PSMain( PSInput i ) : SV_Target
     [unroll]
     for ( uint j = 1; j < 16; ++j )
     {
-        float texelLum = f32tof16( Luminance( texels[ j ] ) );
-        indices[ j ] = ComputeIndex( texelLum, endPoint0Lum, endPoint1Lum );
+        float texelPos = f32tof16( dot( texels[ j ], blockDir ) );
+        indices[ j ] = ComputeIndex( texelPos, endPoint0Pos, endPoint1Pos );
     }
 
 
