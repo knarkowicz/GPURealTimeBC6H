@@ -96,6 +96,19 @@ uint4 PSMain( PSInput i ) : SV_Target
         blockMin = min( blockMin, texels[ i ] );
         blockMax = max( blockMax, texels[ i ] );
     }
+	
+	// refine endpoints
+    float3 refinedBlockMin = blockMax;
+    float3 refinedBlockMax = blockMin;
+	[unroll]
+	for ( uint i = 0; i < 16; ++i )
+    {
+        refinedBlockMin = min( refinedBlockMin, texels[ i ] == blockMin ? refinedBlockMin : texels[ i ] );
+        refinedBlockMax = max( refinedBlockMax, texels[ i ] == blockMax ? refinedBlockMax : texels[ i ] );
+    }
+	float3 deltaMax = ( blockMax - blockMin ) * ( 1.0f / 16.0f );
+	blockMin += min( refinedBlockMin - blockMin, deltaMax );
+	blockMax -= min( blockMax - refinedBlockMax, deltaMax );
 
     float3 blockDir = blockMax - blockMin;
     blockDir = blockDir / ( blockDir.x + blockDir.y + blockDir.z );
