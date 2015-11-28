@@ -65,7 +65,8 @@ private:
     ID3D11VertexShader*             m_blitVS;
     ID3D11PixelShader*              m_blitPS;
     ID3D11VertexShader*             m_compressVS;
-    ID3D11PixelShader*              m_compressPS;
+    ID3D11PixelShader*              m_compressFastPS;
+    ID3D11PixelShader*              m_compressQualityPS;
 
     ID3D11Buffer*                   m_ib;
     ID3D11Texture2D*                m_srcTextureRes;
@@ -87,14 +88,14 @@ private:
     bool                            m_dragEnabled;
     Vec2                            m_dragStart;
     bool                            m_showCompressed;
+    bool                            m_qualityMode;
     bool                            m_updateRMSE;
     bool                            m_updateTitle;
     unsigned                        m_imageID;
     unsigned                        m_imageWidth;
     unsigned                        m_imageHeight;
     uint64_t                        m_frameID;
-    float                           m_rmse;
-    float                           m_lumRMSE;
+    float                           m_rmsle;
 
     void CreateImage();
     void DestoryImage();
