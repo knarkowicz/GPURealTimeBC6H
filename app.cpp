@@ -50,13 +50,12 @@ CApp::CApp()
     , m_blitVS( nullptr )
     , m_blitPS( nullptr )
     , m_compressVS( nullptr )
-    , m_compressFastPS( nullptr )
-    , m_compressQualityPS( nullptr )
+    , m_compressPS( nullptr )
     , m_showCompressed( true )
-    , m_qualityMode( false )
     , m_windowHandle( 0 )
     , m_frameID( 0 )
-    , m_rmsle( 0.0f )
+    , m_rmse( 0.0f )
+    , m_lumRMSE( 0.0f )
     , m_timeAcc( 0.0f )
     , m_timeAccSampleNum( 0 )
     , m_compressionTime( 0.0f )
@@ -344,22 +343,7 @@ void CApp::CreateShaders()
     hr = D3DCompileFromFile( L"compress.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", shaderFlags, 0, &psBlob, &errorBlob );
     if ( SUCCEEDED( hr ) )
     {
-        m_device->CreatePixelShader( psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_compressFastPS );
-    }
-    else
-    {
-        OutputDebugStringA( (char const*) errorBlob->GetBufferPointer() );
-    }
-
-    D3D_SHADER_MACRO macro[ 2 ];
-    macro[ 0 ].Name         = "QUALITY";
-    macro[ 0 ].Definition   = "1";
-    macro[ 1 ].Name         = nullptr;
-    macro[ 1 ].Definition   = nullptr;
-    hr = D3DCompileFromFile( L"compress.hlsl", macro, nullptr, "PSMain", "ps_5_0", shaderFlags, 0, &psBlob, &errorBlob );
-    if ( SUCCEEDED( hr ) )
-    {
-        m_device->CreatePixelShader( psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_compressQualityPS );
+        m_device->CreatePixelShader( psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_compressPS );
     }
     else
     {
@@ -392,8 +376,7 @@ void CApp::DestroyShaders()
     SAFE_RELEASE( m_blitVS );
     SAFE_RELEASE( m_blitPS );
     SAFE_RELEASE( m_compressVS );
-    SAFE_RELEASE( m_compressFastPS );
-    SAFE_RELEASE( m_compressQualityPS );
+    SAFE_RELEASE( m_compressPS );
 }
 
 void CApp::Release()
@@ -428,12 +411,6 @@ void CApp::OnKeyDown( WPARAM wParam )
         case 'E':
             m_showCompressed = !m_showCompressed;
             m_updateTitle = true;
-            break;
-
-        case 'Q':
-            m_qualityMode   = !m_qualityMode;
-            m_updateTitle   = true;
-            m_updateRMSE    = true;
             break;
 
         case VK_ADD:
@@ -510,8 +487,8 @@ void CApp::UpdateTitle()
 {
     wchar_t title[ 256 ];
     title[ 0 ] = 0;
-    swprintf( title, ARRAYSIZE( title ), L"time:%.3fms m_rmsle:%.4f [q]mode:%s [e]show:%s [-/+]exposure:%.1f [n]%S%dx%d [r]reloadshaders", 
-        m_compressionTime, m_rmsle, m_qualityMode ? L"quality" : L"fast", m_showCompressed ? L"compressed" : L"source", m_imageExposure, ImagePathArr[ m_imageID ], m_imageWidth, m_imageHeight );
+    swprintf( title, ARRAYSIZE( title ), L"time:%.2fms rmse:%.3f lumRMSE:%.3f [e]show:%s [-/+]exposure:%.1f [n]%S%dx%d [r]reloadshaders", 
+        m_compressionTime, m_rmse, m_lumRMSE, m_showCompressed ? L"compressed" : L"source", m_imageExposure, ImagePathArr[ m_imageID ], m_imageWidth, m_imageHeight );
 
     SetWindowText( m_windowHandle, title );
 }
@@ -540,8 +517,8 @@ void CApp::Render()
     m_ctx->Unmap( m_constantBuffer, 0 );
     m_ctx->PSSetConstantBuffers( 0, 1, &m_constantBuffer );
 
-    ID3D11PixelShader* compressPS = m_qualityMode ? m_compressQualityPS : m_compressFastPS;
-    if ( m_compressVS && compressPS )
+
+    if ( m_compressVS && m_compressPS )
     {
         m_ctx->OMSetRenderTargets( 1, &m_compressTargetView, nullptr );
 
@@ -555,9 +532,10 @@ void CApp::Render()
         m_ctx->RSSetViewports( 1, &vp );
 
         m_ctx->VSSetShader( m_compressVS, nullptr, 0 );
-        m_ctx->PSSetShader( compressPS, nullptr, 0 );
+        m_ctx->PSSetShader( m_compressPS, nullptr, 0 );
         m_ctx->PSSetShaderResources( 0, 1, &m_srcTextureView );
         m_ctx->PSSetSamplers( 0, 1, &m_pointSampler );
+
         m_ctx->DrawIndexed( 4, 0, 0 );
     }
 
@@ -708,7 +686,8 @@ void CApp::UpdateRMSE()
     CopyTexture( imageA, m_srcTextureView );
     CopyTexture( imageB, m_dstTextureView );
 
-    double sum = 0.0;
+    double sumA = 0.0;
+    double sumB = 0.0;
     for ( unsigned y = 0; y < m_imageHeight; ++y )
     {
         for ( unsigned x = 0; x < m_imageWidth; ++x )
@@ -719,14 +698,15 @@ void CApp::UpdateRMSE()
             double x1 = imageB[ x + y * m_imageWidth ].x;
             double y1 = imageB[ x + y * m_imageWidth ].y;
             double z1 = imageB[ x + y * m_imageWidth ].z;
+            double l0 = x0 * 0.299 + y0 * 0.587 + z0 * 0.114;
+            double l1 = x1 * 0.299 + y1 * 0.587 + z1 * 0.114;
 
-            double dx = log( x1 + 1.0 ) - log( x0 + 1.0 );
-            double dy = log( y1 + 1.0 ) - log( y0 + 1.0 );
-            double dz = log( z1 + 1.0 ) - log( z0 + 1.0 );
-            sum += dx * dx + dy * dy + dz * dz;
+            sumA += ( x0 - x1 ) * ( x0 - x1 ) + ( y0 - y1 ) * ( y0 - y1 ) + ( z0 - z1 ) * ( z0 - z1 );
+            sumB += ( l0 - l1 ) * ( l0 - l1 );
         }
     }
-    m_rmsle = (float) sqrt( sum / ( 3.0 * m_imageWidth * m_imageHeight ) );
+    m_rmse      = (float) sqrt( sumA / ( 3.0 * m_imageWidth * m_imageHeight ) );
+    m_lumRMSE   = (float) sqrt( sumB / ( m_imageWidth * m_imageHeight ) );
 
     delete imageA;
     delete imageB;

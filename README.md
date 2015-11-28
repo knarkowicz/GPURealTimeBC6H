@@ -1,7 +1,8 @@
 GPURealTimeBC6H
 =======
 
-Real-time BC6H compressor, which runs entirelly on GPU (implemented using DX11 and pixel shaders). Features two presets. "Fast" presets compresses a standard 256x256x6 envmap with a full mipmap in ~0.07ms on NVIDIA GTX 660 or AMD R9 270 (both are mid-range GPUs). "Quality" preset compresses a standard 256x256x6 envmap with a full mipmap in ~6.84ms and compression quality is comparable to fast/normal presets of offline compressors.
+Real-time BC6H compressor, which runs entirelly on GPU. Endpoint algorithm is based on "Real-Time DXT Compression" by
+J.M.P. van Waveren. Implemented using DirectX11 API and pixel shaders. Quality is between Intel's BC6H compressor's "veryfast" and "basic" presets. Standard 256x256x6 envmap with full mipmap chain is compressed in ~0.07ms on NVIDIA GTX 660 or AMD R9 270 (both are mid-range GPUs).
 
 License
 ===
