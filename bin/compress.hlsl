@@ -167,7 +167,7 @@ void EncodeP1( inout uint4 block, inout float blockRMSE, float3 texels[ 16 ] )
     float3 logBlockMin          = log2( blockMin + 1.0f );
     float3 logRefinedBlockMax   = log2( refinedBlockMax + 1.0f );
     float3 logRefinedBlockMin   = log2( refinedBlockMin + 1.0f );
-    float3 logBlockMaxExt       = ( logBlockMax - logBlockMin ) * ( 1.0f / 16.0f );
+    float3 logBlockMaxExt       = ( logBlockMax - logBlockMin ) * ( 1.0f / 32.0f );
     logBlockMin += min( logRefinedBlockMin - logBlockMin, logBlockMaxExt );
     logBlockMax -= min( logBlockMax - logRefinedBlockMax, logBlockMaxExt );
     blockMin = exp2( logBlockMin ) - 1.0f;
