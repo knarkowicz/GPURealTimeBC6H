@@ -30,7 +30,7 @@ PSInput VSMain( uint vertexID : SV_VertexID )
 static const float HALF_MAX = 65504.0f;
 static const uint PATTERN_NUM = 32;
 
-float ErrorMetric( float3 a, float3 b )
+float CalcRMSLE( float3 a, float3 b )
 {
     float3 err = log2( a + 1.0f ) - log2( b + 1.0f );
     err = err * err;
@@ -140,7 +140,7 @@ void SignExtend( inout int3 v, uint mask, uint signFlag )
     if ( v.z < 0 ) v.z = ( v.z & mask ) | signFlag;
 }
 
-void EncodeP1( inout uint4 block, inout float blockRMSE, float3 texels[ 16 ] )
+void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
 {
     // compute endpoints (min/max RGB bbox)
     float3 blockMin = texels[ 0 ];
@@ -202,23 +202,22 @@ void EncodeP1( inout uint4 block, inout float blockRMSE, float3 texels[ 16 ] )
         indices[ i ] = ComputeIndex4( texelPos, endPoint0Pos, endPoint1Pos );
     }
 
-    // compute RMSE
-    float rmse = 0.0f;
+    // compute RMSLE
+    int3 endpoint0Unq = Unquantize( endpoint0, 10 );
+    int3 endpoint1Unq = Unquantize( endpoint1, 10 );
+    float rmsle = 0.0f;
     for ( i = 0; i < 16; ++i )
     {
-        int3 endpoint0Unq = Unquantize( endpoint0, 10 );
-        int3 endpoint1Unq = Unquantize( endpoint1, 10 );
-
         uint index = indices[ i ];
         float weight = floor( ( index * 64.0f ) / 15.0f + 0.5f );
         float3 texelUnc = texelUnc = f16tof32( FinishUnquantize( floor( endpoint0Unq * ( 64.0f - weight ) + endpoint1Unq * weight + 32.0f ) / 64.0f ) );
 
-        rmse += ErrorMetric( texels[ i ], texelUnc );
+        rmsle += CalcRMSLE( texels[ i ], texelUnc );
     }
 
 
     // encode block for mode 11
-    blockRMSE = rmse;
+    blockRMSLE = rmsle;
     block.x = 0x03;
 
     // endpoints
@@ -250,7 +249,7 @@ void EncodeP1( inout uint4 block, inout float blockRMSE, float3 texels[ 16 ] )
     block.w |= indices[ 15 ] << 28;
 }
 
-void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, float3 texels[ 16 ] )
+void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, float3 texels[ 16 ] )
 {
     float3 p0BlockMin = float3( HALF_MAX, HALF_MAX, HALF_MAX );
     float3 p0BlockMax = float3( 0.0f, 0.0f, 0.0f );
@@ -340,24 +339,33 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, flo
     endpoint952 = clamp( endpoint952, -maxVal95, maxVal95 );
     endpoint953 = clamp( endpoint953, -maxVal95, maxVal95 );
 
-    float rmse76 = 0.0f;
-    float rmse95 = 0.0f;
+    int3 endpoint760Unq = Unquantize( endpoint760,                  7 );
+    int3 endpoint761Unq = Unquantize( endpoint760 + endpoint761,    7 );
+    int3 endpoint762Unq = Unquantize( endpoint760 + endpoint762,    7 );
+    int3 endpoint763Unq = Unquantize( endpoint760 + endpoint763,    7 );
+    int3 endpoint950Unq = Unquantize( endpoint950,                  9 );
+    int3 endpoint951Unq = Unquantize( endpoint950 + endpoint951,    9 );
+    int3 endpoint952Unq = Unquantize( endpoint950 + endpoint952,    9 );
+    int3 endpoint953Unq = Unquantize( endpoint950 + endpoint953,    9 );
+
+    float rmsle76 = 0.0f;
+    float rmsle95 = 0.0f;
     for ( i = 0; i < 16; ++i )
     {
         uint paletteID = Pattern( pattern, i );
 
-        int3 endpoint760Unq = Unquantize( paletteID == 0 ? endpoint760 : endpoint760 + endpoint762, 7 );
-        int3 endpoint761Unq = Unquantize( paletteID == 0 ? endpoint760 + endpoint761 : endpoint760 + endpoint763, 7 );
-        int3 endpoint950Unq = Unquantize( paletteID == 0 ? endpoint950 : endpoint950 + endpoint952, 9 );
-        int3 endpoint951Unq = Unquantize( paletteID == 0 ? endpoint950 + endpoint951 : endpoint950 + endpoint953, 9 );
+        int3 tmp760Unq = paletteID == 0 ? endpoint760Unq : endpoint762Unq;
+        int3 tmp761Unq = paletteID == 0 ? endpoint761Unq : endpoint763Unq;
+        int3 tmp950Unq = paletteID == 0 ? endpoint950Unq : endpoint952Unq;
+        int3 tmp951Unq = paletteID == 0 ? endpoint951Unq : endpoint953Unq;
 
         uint index = indices[ i ];
         float weight = floor( ( index * 64.0f ) / 7.0f + 0.5f );
-        float3 texelUnc76 = f16tof32( FinishUnquantize( floor( endpoint760Unq * ( 64.0f - weight ) + endpoint761Unq * weight + 32.0f ) / 64.0f ) );
-        float3 texelUnc95 = f16tof32( FinishUnquantize( floor( endpoint950Unq * ( 64.0f - weight ) + endpoint951Unq * weight + 32.0f ) / 64.0f ) );
+        float3 texelUnc76 = f16tof32( FinishUnquantize( floor( tmp760Unq * ( 64.0f - weight ) + tmp761Unq * weight + 32.0f ) / 64.0f ) );
+        float3 texelUnc95 = f16tof32( FinishUnquantize( floor( tmp950Unq * ( 64.0f - weight ) + tmp951Unq * weight + 32.0f ) / 64.0f ) );
 
-        rmse76 += ErrorMetric( texels[ i ], texelUnc76 );
-        rmse95 += ErrorMetric( texels[ i ], texelUnc95 );
+        rmsle76 += CalcRMSLE( texels[ i ], texelUnc76 );
+        rmsle95 += CalcRMSLE( texels[ i ], texelUnc95 );
     }
 
     SignExtend( endpoint761, 0x1F, 0x20 );
@@ -369,13 +377,13 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, flo
     SignExtend( endpoint953, 0xF, 0x10 );
 
     // encode block
-    float p2RMSE = min( rmse76, rmse95 );
-    if ( p2RMSE < blockRMSE )
+    float p2RMSLE = min( rmsle76, rmsle95 );
+    if ( p2RMSLE < blockRMSLE )
     {
-        blockRMSE   = p2RMSE;
+        blockRMSLE   = p2RMSLE;
         block       = uint4( 0, 0, 0, 0 );
 
-        if ( p2RMSE == rmse76 )
+        if ( p2RMSLE == rmsle76 )
         {
             // 7.6
             block.x = 0x1;
@@ -537,14 +545,14 @@ uint4 PSMain( PSInput i ) : SV_Target
     texels[ 14 ]    = float3( block3X.x, block3Y.x, block3Z.x );
     texels[ 15 ]    = float3( block3X.y, block3Y.y, block3Z.y );
 
-    uint4 block     = uint4( 0, 0, 0, 0 );
-    float blockRMSE = 0.0f;
+    uint4 block         = uint4( 0, 0, 0, 0 );
+    float blockRMSLE    = 0.0f;
 
-    EncodeP1( block, blockRMSE, texels );
+    EncodeP1( block, blockRMSLE, texels );
 #ifdef QUALITY
     for ( uint i = 0; i < 32; ++i )
     {
-        EncodeP2Pattern( block, blockRMSE, i, texels );
+        EncodeP2Pattern( block, blockRMSLE, i, texels );
     }
 #endif
 
