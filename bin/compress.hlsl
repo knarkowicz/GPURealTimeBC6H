@@ -312,12 +312,6 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, flo
         indices[ i ] = paletteID == 0 ? p0Weight : p1Weight;
     }
 
-
-    int3 endpoint0 = Quantize( p0BlockMin, 6 );
-    int3 endpoint1 = Quantize( p0BlockMax, 6 );
-    int3 endpoint2 = Quantize( p1BlockMin, 6 );
-    int3 endpoint3 = Quantize( p1BlockMax, 6 );
-
     int3 endpoint760 = Quantize( p0BlockMin, 7 );
     int3 endpoint761 = Quantize( p0BlockMax, 7 );
     int3 endpoint762 = Quantize( p1BlockMin, 7 );
@@ -346,15 +340,12 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, flo
     endpoint952 = clamp( endpoint952, -maxVal95, maxVal95 );
     endpoint953 = clamp( endpoint953, -maxVal95, maxVal95 );
 
-    float rmse66 = 0.0f;
     float rmse76 = 0.0f;
     float rmse95 = 0.0f;
     for ( i = 0; i < 16; ++i )
     {
         uint paletteID = Pattern( pattern, i );
 
-        int3 endpoint660Unq = Unquantize( paletteID == 0 ? endpoint0 : endpoint2, 6 );
-        int3 endpoint661Unq = Unquantize( paletteID == 0 ? endpoint1 : endpoint3, 6 );
         int3 endpoint760Unq = Unquantize( paletteID == 0 ? endpoint760 : endpoint760 + endpoint762, 7 );
         int3 endpoint761Unq = Unquantize( paletteID == 0 ? endpoint760 + endpoint761 : endpoint760 + endpoint763, 7 );
         int3 endpoint950Unq = Unquantize( paletteID == 0 ? endpoint950 : endpoint950 + endpoint952, 9 );
@@ -362,11 +353,9 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, flo
 
         uint index = indices[ i ];
         float weight = floor( ( index * 64.0f ) / 7.0f + 0.5f );
-        float3 texelUnc66 = f16tof32( FinishUnquantize( floor( endpoint660Unq * ( 64.0f - weight ) + endpoint661Unq * weight + 32.0f ) / 64.0f ) );
         float3 texelUnc76 = f16tof32( FinishUnquantize( floor( endpoint760Unq * ( 64.0f - weight ) + endpoint761Unq * weight + 32.0f ) / 64.0f ) );
         float3 texelUnc95 = f16tof32( FinishUnquantize( floor( endpoint950Unq * ( 64.0f - weight ) + endpoint951Unq * weight + 32.0f ) / 64.0f ) );
 
-        rmse66 += ErrorMetric( texels[ i ], texelUnc66 );
         rmse76 += ErrorMetric( texels[ i ], texelUnc76 );
         rmse95 += ErrorMetric( texels[ i ], texelUnc95 );
     }
@@ -380,43 +369,13 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, flo
     SignExtend( endpoint953, 0xF, 0x10 );
 
     // encode block
-    float p2RMSE = min( min( rmse66, rmse95 ), rmse76 );
-    p2RMSE = min( rmse76, rmse95 );
-    //p2RMSE = rmse66;
+    float p2RMSE = min( rmse76, rmse95 );
     if ( p2RMSE < blockRMSE )
     {
         blockRMSE   = p2RMSE;
         block       = uint4( 0, 0, 0, 0 );
 
-        if ( p2RMSE == rmse66 )
-        {
-            // 6.6
-            block.x = 0x1E;
-            block.x |= (uint) endpoint0.x << 5;
-            block.x |= ( (uint) endpoint3.y & 0x10 ) << 7;
-            block.x |= ( (uint) endpoint3.z & 0x3  ) << 12;
-            block.x |= ( (uint) endpoint2.z & 0x10 ) << 10;
-            block.x |= (uint) endpoint0.y << 15;
-            block.x |= ( (uint) endpoint2.y & 0x20 ) << 16;
-            block.x |= ( (uint) endpoint2.z & 0x20 ) << 17;
-            block.x |= ( (uint) endpoint3.z & 0x4  ) << 21;
-            block.x |= ( (uint) endpoint2.y & 0x10 ) << 20;
-            block.x |= (uint) endpoint0.z << 25;
-            block.x |= ( (uint) endpoint3.y & 0x20 ) << 26;
-            block.y |= ( (uint) endpoint3.z & 0x8  ) >> 3;
-            block.y |= ( (uint) endpoint3.z & 0x20 ) >> 4;
-            block.y |= ( (uint) endpoint3.z & 0x10 ) >> 2;
-            block.y |= (uint) endpoint1.x << 3;
-            block.y |= ( (uint) endpoint2.y & 0xF ) << 9;
-            block.y |= (uint) endpoint1.y << 13;
-            block.y |= ( (uint) endpoint3.y & 0xF ) << 19;
-            block.y |= (uint) endpoint1.z << 23;
-            block.y |= ( (uint) endpoint2.z & 0x7 ) << 29;
-            block.z |= ( (uint) endpoint2.z & 0x8 ) >> 3;
-            block.z |= (uint) endpoint2.x << 1;
-            block.z |= (uint) endpoint3.x << 7;
-        }
-        else if ( p2RMSE == rmse76 )
+        if ( p2RMSE == rmse76 )
         {
             // 7.6
             block.x = 0x1;
@@ -445,7 +404,7 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, flo
             block.z |= (uint) endpoint762.x << 1;
             block.z |= (uint) endpoint763.x << 7;
         }
-        else if ( p2RMSE == rmse95 )
+        else
         {
             // 9.5
             block.x = 0xE;
@@ -513,7 +472,7 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSE, int pattern, flo
             block.w |= indices[ 14 ] << 26;
             block.w |= indices[ 15 ] << 29;
         }
-        else if ( fixupID == 8 )
+        else
         {
             block.z |= indices[ 0 ] << 18;
             block.z |= indices[ 1 ] << 20;
