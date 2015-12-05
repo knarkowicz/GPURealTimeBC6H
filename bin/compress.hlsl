@@ -40,47 +40,35 @@ float CalcRMSLE( float3 a, float3 b )
 uint PatternFixupID( uint i )
 {
     uint ret = 15;
-    ret += ( ( 3441033216 >> i ) & 0x1 ) * ( 2 - 15 );
-    ret += ( ( 845414400  >> i ) & 0x1 ) * ( 8 - 15 );
+    ret = ( ( 3441033216 >> i ) & 0x1 ) ? 2 : ret;
+    ret = ( ( 845414400  >> i ) & 0x1 ) ? 8 : ret;
     return ret;
 }
 
 uint Pattern( uint p, uint i )
 {
-    uint enc = 0;
-    enc = p == 0 ? 52428 : enc;
-    enc = p == 1 ? 34952 : enc;
-    enc = p == 2 ? 61166 : enc;
-    enc = p == 3 ? 60616 : enc;
-    enc = p == 4 ? 51328 : enc;
-    enc = p == 5 ? 65260 : enc;
-    enc = p == 6 ? 65224 : enc;
-    enc = p == 7 ? 60544 : enc;
-    enc = p == 8 ? 51200 : enc;
-    enc = p == 9 ? 65516 : enc;
-    enc = p == 10 ? 65152 : enc;
-    enc = p == 11 ? 59392 : enc;
-    enc = p == 12 ? 65512 : enc;
-    enc = p == 13 ? 65280 : enc;
-    enc = p == 14 ? 65520 : enc;
-    enc = p == 15 ? 61440 : enc;
-    enc = p == 16 ? 63248 : enc;
-    enc = p == 17 ? 142 : enc;
-    enc = p == 18 ? 28928 : enc;
-    enc = p == 19 ? 2254 : enc;
-    enc = p == 20 ? 140 : enc;
-    enc = p == 21 ? 29456 : enc;
-    enc = p == 22 ? 12544 : enc;
-    enc = p == 23 ? 36046 : enc;
-    enc = p == 24 ? 2188 : enc;
-    enc = p == 25 ? 12560 : enc;
-    enc = p == 26 ? 26214 : enc;
-    enc = p == 27 ? 13932 : enc;
-    enc = p == 28 ? 6120 : enc;
-    enc = p == 29 ? 4080 : enc;
-    enc = p == 30 ? 29070 : enc;
-    enc = p == 31 ? 14748 : enc;
+    uint p2 = p / 2;
+    uint p3 = p - p2 * 2;
 
+    uint enc = 0;
+    enc = p2 == 0  ? 2290666700 : enc;
+    enc = p2 == 1  ? 3972591342 : enc;
+    enc = p2 == 2  ? 4276930688 : enc;
+    enc = p2 == 3  ? 3967876808 : enc;
+    enc = p2 == 4  ? 4293707776 : enc;
+    enc = p2 == 5  ? 3892379264 : enc;
+    enc = p2 == 6  ? 4278255592 : enc;
+    enc = p2 == 7  ? 4026597360 : enc;
+    enc = p2 == 8  ? 9369360    : enc;
+    enc = p2 == 9  ? 147747072  : enc;
+    enc = p2 == 10 ? 1930428556 : enc;
+    enc = p2 == 11 ? 2362323200 : enc;
+    enc = p2 == 12 ? 823134348  : enc;
+    enc = p2 == 13 ? 913073766  : enc;
+    enc = p2 == 14 ? 267393000  : enc;
+    enc = p2 == 15 ? 966553998  : enc;
+
+    enc = p3 ? enc >> 16 : enc;
     uint ret = ( enc >> i ) & 0x1;
     return ret;
 }
