@@ -138,9 +138,9 @@ uint ComputeIndex4( float texelPos, float endPoint0Pos, float endPoint1Pos )
 void SignExtend( inout float3 v1, uint mask, uint signFlag )
 {
     int3 v = v1;
-    if ( v.x < 0 ) v.x = ( v.x & mask ) | signFlag;
-    if ( v.y < 0 ) v.y = ( v.y & mask ) | signFlag;
-    if ( v.z < 0 ) v.z = ( v.z & mask ) | signFlag;
+    v.x = ( v.x & mask ) | ( v.x < 0 ? signFlag : 0 );
+    v.y = ( v.y & mask ) | ( v.y < 0 ? signFlag : 0 );
+    v.z = ( v.z & mask ) | ( v.z < 0 ? signFlag : 0 );
     v1 = v;
 }
 
@@ -185,20 +185,19 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
     float endPoint0Pos  = f32tof16( dot( blockMin, blockDir ) );
     float endPoint1Pos  = f32tof16( dot( blockMax, blockDir ) );
 
-    uint indices[ 16 ] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-
 
     // check if endpoint swap is required
     float texelPos = f32tof16( dot( texels[ 0 ], blockDir ) );
-    indices[ 0 ] = ComputeIndex4( texelPos, endPoint0Pos, endPoint1Pos );
+    uint fixupIndex = ComputeIndex4( texelPos, endPoint0Pos, endPoint1Pos );
     [flatten]
-    if ( indices[ 0 ] > 7 )
+    if ( fixupIndex > 7 )
     {
         Swap( endPoint0Pos, endPoint1Pos );
         Swap( endpoint0, endpoint1 );
     }
 
     // compute indices
+    uint indices[ 16 ] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     [unroll]
     for ( uint i = 0; i < 16; ++i )
     {
@@ -213,7 +212,7 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
     for ( uint i = 0; i < 16; ++i )
     {
         float weight = floor( ( indices[ i ] * 64.0f ) / 15.0f + 0.5f );
-        float3 texelUnc = texelUnc = FinishUnquantize( endpoint0Unq, endpoint1Unq, weight );
+        float3 texelUnc = FinishUnquantize( endpoint0Unq, endpoint1Unq, weight );
 
         rmsle += CalcRMSLE( texels[ i ], texelUnc );
     }
@@ -285,33 +284,33 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
     float p1Endpoint0Pos = f32tof16( dot( p1BlockMin, p1BlockDir ) );
     float p1Endpoint1Pos = f32tof16( dot( p1BlockMax, p1BlockDir ) );
 
-    uint indices[ 16 ] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
     uint fixupID = PatternFixupID( pattern );
     float p0TexelPos = f32tof16( dot( texels[ 0 ], p0BlockDir ) );
     float p1TexelPos = f32tof16( dot( texels[ fixupID ], p1BlockDir ) );
-    uint p0Weight = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
-    uint p1Weight = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
-    if ( p0Weight > 3 )
+    uint p0FixupIndex = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
+    uint p1FixupIndex = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
+    if ( p0FixupIndex > 3 )
     {
         Swap( p0Endpoint0Pos, p0Endpoint1Pos );
         Swap( p0BlockMin, p0BlockMax );
     }
-    if ( p1Weight > 3 )
+    if ( p1FixupIndex > 3 )
     {
         Swap( p1Endpoint0Pos, p1Endpoint1Pos );
         Swap( p1BlockMin, p1BlockMax );
     }
 
+    uint indices[ 16 ] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     for ( uint i = 0; i < 16; ++i )
     {
         float p0TexelPos = f32tof16( dot( texels[ i ], p0BlockDir ) );
         float p1TexelPos = f32tof16( dot( texels[ i ], p1BlockDir ) );
-        uint p0Weight = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
-        uint p1Weight = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
+        uint p0Index = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
+        uint p1Index = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
 
         uint paletteID = Pattern( pattern, i );
-        indices[ i ] = paletteID == 0 ? p0Weight : p1Weight;
+        indices[ i ] = paletteID == 0 ? p0Index : p1Index;
     }
 
     float3 endpoint760 = floor( Quantize7( p0BlockMin ) );
@@ -516,18 +515,18 @@ uint4 PSMain( PSInput i ) : SV_Target
     float2 block1UV = uv + float2( 2.0f * TextureSizeRcp.x, 0.0f );
     float2 block2UV = uv + float2( 0.0f, 2.0f * TextureSizeRcp.y );
     float2 block3UV = uv + float2( 2.0f * TextureSizeRcp.x, 2.0f * TextureSizeRcp.y );
-    float4 block0X  = SrcTexture.GatherRed( PointSampler,   block0UV );
+    float4 block0X  = SrcTexture.GatherRed( PointSampler, block0UV );
+    float4 block1X  = SrcTexture.GatherRed( PointSampler, block1UV );
+    float4 block2X  = SrcTexture.GatherRed( PointSampler, block2UV );
+    float4 block3X  = SrcTexture.GatherRed( PointSampler, block3UV );
     float4 block0Y  = SrcTexture.GatherGreen( PointSampler, block0UV );
-    float4 block0Z  = SrcTexture.GatherBlue( PointSampler,  block0UV );
-    float4 block1X  = SrcTexture.GatherRed( PointSampler,   block1UV );
     float4 block1Y  = SrcTexture.GatherGreen( PointSampler, block1UV );
-    float4 block1Z  = SrcTexture.GatherBlue( PointSampler,  block1UV );
-    float4 block2X = SrcTexture.GatherRed( PointSampler,    block2UV );
-    float4 block2Y = SrcTexture.GatherGreen( PointSampler,  block2UV );
-    float4 block2Z = SrcTexture.GatherBlue( PointSampler,   block2UV );
-    float4 block3X = SrcTexture.GatherRed( PointSampler,    block3UV );
-    float4 block3Y = SrcTexture.GatherGreen( PointSampler,  block3UV );
-    float4 block3Z = SrcTexture.GatherBlue( PointSampler,   block3UV );
+    float4 block2Y  = SrcTexture.GatherGreen( PointSampler, block2UV );
+    float4 block3Y  = SrcTexture.GatherGreen( PointSampler, block3UV );
+    float4 block0Z  = SrcTexture.GatherBlue( PointSampler, block0UV );
+    float4 block1Z  = SrcTexture.GatherBlue( PointSampler, block1UV );
+    float4 block2Z  = SrcTexture.GatherBlue( PointSampler, block2UV );
+    float4 block3Z  = SrcTexture.GatherBlue( PointSampler, block3UV );
 
     float3 texels[ 16 ];
     texels[ 0 ]     = float3( block0X.w, block0Y.w, block0Z.w );
