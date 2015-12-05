@@ -85,26 +85,40 @@ uint Pattern( uint p, uint i )
     return ret;
 }
 
-float Quantize( float x, uint prec )
+float3 Quantize7( float3 x )
 {
-    return ( f32tof16( x ) << prec ) / ( 0x7bff + 1.0f );
+    return ( f32tof16( x ) * 128.0f ) / ( 0x7bff + 1.0f );
 }
 
-float3 Quantize( float3 x, uint prec )
+float3 Quantize9( float3 x )
 {
-    return ( f32tof16( x ) << prec ) / ( 0x7bff + 1.0f );
+    return ( f32tof16( x ) * 512.0f ) / ( 0x7bff + 1.0f );
 }
 
-float3 Unquantize( int3 x, int prec )
+float3 Quantize10( float3 x )
 {
-    int3 unq = ( ( x << 16 ) + 0x8000 ) >> prec;
-    return unq;
+    return ( f32tof16( x ) * 1024.0f ) / ( 0x7bff + 1.0f );
 }
 
-int3 FinishUnquantize( int3 comp )
+float3 Unquantize7( float3 x )
 {
-    comp = ( comp * 31 ) >> 6;
-    return comp;
+    return ( x * 65536.0f + 0x8000 ) / 128.0f;
+}
+
+float3 Unquantize9( float3 x )
+{
+    return ( x * 65536.0f + 0x8000 ) / 512.0f;
+}
+
+float3 Unquantize10( float3 x )
+{
+    return ( x * 65536.0f + 0x8000 ) / 1024.0f;
+}
+
+float3 FinishUnquantize( float3 endpoint0Unq, float3 endpoint1Unq, float weight )
+{
+    float3 comp = ( endpoint0Unq * ( 64.0f - weight ) + endpoint1Unq * weight + 32.0f ) * ( 31.0f / 4096.0f );
+    return f16tof32( uint3( comp ) );
 }
 
 void Swap( inout float3 a, inout float3 b )
@@ -133,11 +147,13 @@ uint ComputeIndex4( float texelPos, float endPoint0Pos, float endPoint1Pos )
     return (uint) clamp( r * 14.93333f + 0.03333f + 0.5f, 0.0f, 15.0f );
 }
 
-void SignExtend( inout int3 v, uint mask, uint signFlag )
+void SignExtend( inout float3 v1, uint mask, uint signFlag )
 {
+    int3 v = v1;
     if ( v.x < 0 ) v.x = ( v.x & mask ) | signFlag;
     if ( v.y < 0 ) v.y = ( v.y & mask ) | signFlag;
     if ( v.z < 0 ) v.z = ( v.z & mask ) | signFlag;
+    v1 = v;
 }
 
 void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
@@ -157,7 +173,7 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
     float3 refinedBlockMin = blockMax;
     float3 refinedBlockMax = blockMin;
     [unroll]
-    for ( i = 0; i < 16; ++i )
+    for ( uint i = 0; i < 16; ++i )
     {
         refinedBlockMin = min( refinedBlockMin, texels[ i ] == blockMin ? refinedBlockMin : texels[ i ] );
         refinedBlockMax = max( refinedBlockMax, texels[ i ] == blockMax ? refinedBlockMax : texels[ i ] );
@@ -176,8 +192,8 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
     float3 blockDir = blockMax - blockMin;
     blockDir = blockDir / ( blockDir.x + blockDir.y + blockDir.z );
 
-    float3 endpoint0    = Quantize( blockMin, 10 );
-    float3 endpoint1    = Quantize( blockMax, 10 );
+    float3 endpoint0    = Quantize10( blockMin );
+    float3 endpoint1    = Quantize10( blockMax );
     float endPoint0Pos  = f32tof16( dot( blockMin, blockDir ) );
     float endPoint1Pos  = f32tof16( dot( blockMax, blockDir ) );
 
@@ -196,21 +212,20 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
 
     // compute indices
     [unroll]
-    for ( i = 0; i < 16; ++i )
+    for ( uint i = 0; i < 16; ++i )
     {
         float texelPos = f32tof16( dot( texels[ i ], blockDir ) );
         indices[ i ] = ComputeIndex4( texelPos, endPoint0Pos, endPoint1Pos );
     }
 
     // compute RMSLE
-    int3 endpoint0Unq = Unquantize( endpoint0, 10 );
-    int3 endpoint1Unq = Unquantize( endpoint1, 10 );
+    float3 endpoint0Unq = Unquantize10( endpoint0 );
+    float3 endpoint1Unq = Unquantize10( endpoint1 );
     float rmsle = 0.0f;
-    for ( i = 0; i < 16; ++i )
+    for ( uint i = 0; i < 16; ++i )
     {
-        uint index = indices[ i ];
-        float weight = floor( ( index * 64.0f ) / 15.0f + 0.5f );
-        float3 texelUnc = texelUnc = f16tof32( FinishUnquantize( floor( endpoint0Unq * ( 64.0f - weight ) + endpoint1Unq * weight + 32.0f ) / 64.0f ) );
+        float weight = floor( ( indices[ i ] * 64.0f ) / 15.0f + 0.5f );
+        float3 texelUnc = texelUnc = FinishUnquantize( endpoint0Unq, endpoint1Unq, weight );
 
         rmsle += CalcRMSLE( texels[ i ], texelUnc );
     }
@@ -287,8 +302,8 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
     uint fixupID = PatternFixupID( pattern );
     float p0TexelPos = f32tof16( dot( texels[ 0 ], p0BlockDir ) );
     float p1TexelPos = f32tof16( dot( texels[ fixupID ], p1BlockDir ) );
-    int p0Weight = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
-    int p1Weight = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
+    uint p0Weight = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
+    uint p1Weight = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
     if ( p0Weight > 3 )
     {
         Swap( p0Endpoint0Pos, p0Endpoint1Pos );
@@ -300,26 +315,26 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
         Swap( p1BlockMin, p1BlockMax );
     }
 
-    for ( i = 0; i < 16; ++i )
+    for ( uint i = 0; i < 16; ++i )
     {
         float p0TexelPos = f32tof16( dot( texels[ i ], p0BlockDir ) );
         float p1TexelPos = f32tof16( dot( texels[ i ], p1BlockDir ) );
-        int p0Weight = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
-        int p1Weight = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
+        uint p0Weight = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
+        uint p1Weight = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
 
         uint paletteID = Pattern( pattern, i );
         indices[ i ] = paletteID == 0 ? p0Weight : p1Weight;
     }
 
-    int3 endpoint760 = Quantize( p0BlockMin, 7 );
-    int3 endpoint761 = Quantize( p0BlockMax, 7 );
-    int3 endpoint762 = Quantize( p1BlockMin, 7 );
-    int3 endpoint763 = Quantize( p1BlockMax, 7 );
+    float3 endpoint760 = floor( Quantize7( p0BlockMin ) );
+    float3 endpoint761 = floor( Quantize7( p0BlockMax ) );
+    float3 endpoint762 = floor( Quantize7( p1BlockMin ) );
+    float3 endpoint763 = floor( Quantize7( p1BlockMax ) );
 
-    int3 endpoint950 = Quantize( p0BlockMin, 9 );
-    int3 endpoint951 = Quantize( p0BlockMax, 9 );
-    int3 endpoint952 = Quantize( p1BlockMin, 9 );
-    int3 endpoint953 = Quantize( p1BlockMax, 9 );
+    float3 endpoint950 = floor( Quantize9( p0BlockMin ) );
+    float3 endpoint951 = floor( Quantize9( p0BlockMax ) );
+    float3 endpoint952 = floor( Quantize9( p1BlockMin ) );
+    float3 endpoint953 = floor( Quantize9( p1BlockMax ) );
 
     endpoint761 = endpoint761 - endpoint760;
     endpoint762 = endpoint762 - endpoint760;
@@ -339,30 +354,29 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
     endpoint952 = clamp( endpoint952, -maxVal95, maxVal95 );
     endpoint953 = clamp( endpoint953, -maxVal95, maxVal95 );
 
-    int3 endpoint760Unq = Unquantize( endpoint760,                  7 );
-    int3 endpoint761Unq = Unquantize( endpoint760 + endpoint761,    7 );
-    int3 endpoint762Unq = Unquantize( endpoint760 + endpoint762,    7 );
-    int3 endpoint763Unq = Unquantize( endpoint760 + endpoint763,    7 );
-    int3 endpoint950Unq = Unquantize( endpoint950,                  9 );
-    int3 endpoint951Unq = Unquantize( endpoint950 + endpoint951,    9 );
-    int3 endpoint952Unq = Unquantize( endpoint950 + endpoint952,    9 );
-    int3 endpoint953Unq = Unquantize( endpoint950 + endpoint953,    9 );
+    float3 endpoint760Unq = Unquantize7( endpoint760 );
+    float3 endpoint761Unq = Unquantize7( endpoint760 + endpoint761 );
+    float3 endpoint762Unq = Unquantize7( endpoint760 + endpoint762 );
+    float3 endpoint763Unq = Unquantize7( endpoint760 + endpoint763 );
+    float3 endpoint950Unq = Unquantize9( endpoint950 );
+    float3 endpoint951Unq = Unquantize9( endpoint950 + endpoint951 );
+    float3 endpoint952Unq = Unquantize9( endpoint950 + endpoint952 );
+    float3 endpoint953Unq = Unquantize9( endpoint950 + endpoint953 );
 
     float rmsle76 = 0.0f;
     float rmsle95 = 0.0f;
-    for ( i = 0; i < 16; ++i )
+    for ( uint i = 0; i < 16; ++i )
     {
         uint paletteID = Pattern( pattern, i );
 
-        int3 tmp760Unq = paletteID == 0 ? endpoint760Unq : endpoint762Unq;
-        int3 tmp761Unq = paletteID == 0 ? endpoint761Unq : endpoint763Unq;
-        int3 tmp950Unq = paletteID == 0 ? endpoint950Unq : endpoint952Unq;
-        int3 tmp951Unq = paletteID == 0 ? endpoint951Unq : endpoint953Unq;
+        float3 tmp760Unq = paletteID == 0 ? endpoint760Unq : endpoint762Unq;
+        float3 tmp761Unq = paletteID == 0 ? endpoint761Unq : endpoint763Unq;
+        float3 tmp950Unq = paletteID == 0 ? endpoint950Unq : endpoint952Unq;
+        float3 tmp951Unq = paletteID == 0 ? endpoint951Unq : endpoint953Unq;
 
-        uint index = indices[ i ];
-        float weight = floor( ( index * 64.0f ) / 7.0f + 0.5f );
-        float3 texelUnc76 = f16tof32( FinishUnquantize( floor( tmp760Unq * ( 64.0f - weight ) + tmp761Unq * weight + 32.0f ) / 64.0f ) );
-        float3 texelUnc95 = f16tof32( FinishUnquantize( floor( tmp950Unq * ( 64.0f - weight ) + tmp951Unq * weight + 32.0f ) / 64.0f ) );
+        float weight = floor( ( indices[ i ] * 64.0f ) / 7.0f + 0.5f );
+        float3 texelUnc76 = FinishUnquantize( tmp760Unq, tmp761Unq, weight );
+        float3 texelUnc95 = FinishUnquantize( tmp950Unq, tmp951Unq, weight );
 
         rmsle76 += CalcRMSLE( texels[ i ], texelUnc76 );
         rmsle95 += CalcRMSLE( texels[ i ], texelUnc95 );
