@@ -1,7 +1,9 @@
 GPURealTimeBC6H
 =======
 
-Real-time BC6H compressor, which runs entirelly on GPU (implemented using DX11 and pixel shaders). Features two presets. "Fast" presets compresses a standard 256x256x6 envmap with a full mipmap in 0.07ms on AMD R9 270 (mid-range GPU). "Quality" preset compresses a standard 256x256x6 envmap with a full mipmap in 3.913ms and compression quality is comparable to fast/normal presets of offline compressors.
+Real-time BC6H compressor, which runs entirelly on GPU (implemented using DX11 and pixel shaders). Features two presets: 
+* "Fast" - compresses a standard 256x256x6 envmap with a full mipmap chain in 0.07ms on AMD R9 270 (mid-range GPU).
+* "Quality" - compresses a standard 256x256x6 envmap with a full mipmap chain in 3.913ms on AMD R9 270 (mid-range GPU). Compression quality is comparable to fast/normal presets of offline compressors.
 
 Performance
 ===
@@ -18,7 +20,7 @@ Average  | 8267.00                   | 155.41                        | 71.96    
 
 Quality
 ===
-Average RMSLE for "desk" image.
+Quality compared using RMSLE (lower is better).
 
          | GPU Real-Time BC6H "Fast" | GPU Real-Time BC6H "Quality"  | Intel "Very fast" | Intel "Fast" | Intel "Basic" | Intel "Slow" | Intel "Very slow" | DirectXTex 
 :-------:|:-------------------------:|:-----------------------------:|:-----------------:|:------------:|:-------------:|:------------:|:-----------------:|:----------:
