@@ -3,7 +3,7 @@ SamplerState    PointSampler    : register( s0 );
 
 struct PSInput
 {
-    float4 m_pos : SV_POSITION;
+    float4 m_pos : SV_Position;
 };
 
 cbuffer MainCB : register( b0 )
@@ -30,9 +30,9 @@ PSInput VSMain( uint vertexID : SV_VertexID )
 static const float HALF_MAX = 65504.0f;
 static const uint PATTERN_NUM = 32;
 
-float CalcRMSLE( float3 a, float3 b )
+float CalcMSLE( float3 a, float3 b )
 {
-    float3 err = log2( a + 1.0f ) - log2( b + 1.0f );
+    float3 err = log2( ( b + 1.0f ) / ( a + 1.0f ) );;
     err = err * err;
     return err.x + err.y + err.z;
 }
@@ -137,19 +137,18 @@ uint ComputeIndex4( float texelPos, float endPoint0Pos, float endPoint1Pos )
 
 void SignExtend( inout float3 v1, uint mask, uint signFlag )
 {
-    int3 v = v1;
+    int3 v = (int3) v1;
     v.x = ( v.x & mask ) | ( v.x < 0 ? signFlag : 0 );
     v.y = ( v.y & mask ) | ( v.y < 0 ? signFlag : 0 );
     v.z = ( v.z & mask ) | ( v.z < 0 ? signFlag : 0 );
     v1 = v;
 }
 
-void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
+void EncodeP1( inout uint4 block, inout float blockMSLE, float3 texels[ 16 ] )
 {
     // compute endpoints (min/max RGB bbox)
     float3 blockMin = texels[ 0 ];
     float3 blockMax = texels[ 0 ];
-    [unroll]
     for ( uint i = 1; i < 16; ++i )
     {
         blockMin = min( blockMin, texels[ i ] );
@@ -160,7 +159,6 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
     // refine endpoints in log2 RGB space
     float3 refinedBlockMin = blockMax;
     float3 refinedBlockMax = blockMin;
-    [unroll]
     for ( uint i = 0; i < 16; ++i )
     {
         refinedBlockMin = min( refinedBlockMin, texels[ i ] == blockMin ? refinedBlockMin : texels[ i ] );
@@ -187,9 +185,8 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
 
 
     // check if endpoint swap is required
-    float texelPos = f32tof16( dot( texels[ 0 ], blockDir ) );
-    uint fixupIndex = ComputeIndex4( texelPos, endPoint0Pos, endPoint1Pos );
-    [flatten]
+    float fixupTexelPos = f32tof16( dot( texels[ 0 ], blockDir ) );
+    uint fixupIndex = ComputeIndex4( fixupTexelPos, endPoint0Pos, endPoint1Pos );
     if ( fixupIndex > 7 )
     {
         Swap( endPoint0Pos, endPoint1Pos );
@@ -198,28 +195,27 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
 
     // compute indices
     uint indices[ 16 ] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-    [unroll]
     for ( uint i = 0; i < 16; ++i )
     {
         float texelPos = f32tof16( dot( texels[ i ], blockDir ) );
         indices[ i ] = ComputeIndex4( texelPos, endPoint0Pos, endPoint1Pos );
     }
 
-    // compute RMSLE
+    // compute compression error (MSLE)
     float3 endpoint0Unq = Unquantize10( endpoint0 );
     float3 endpoint1Unq = Unquantize10( endpoint1 );
-    float rmsle = 0.0f;
+    float msle = 0.0f;
     for ( uint i = 0; i < 16; ++i )
     {
         float weight = floor( ( indices[ i ] * 64.0f ) / 15.0f + 0.5f );
         float3 texelUnc = FinishUnquantize( endpoint0Unq, endpoint1Unq, weight );
 
-        rmsle += CalcRMSLE( texels[ i ], texelUnc );
+        msle += CalcMSLE( texels[ i ], texelUnc );
     }
 
 
     // encode block for mode 11
-    blockRMSLE = rmsle;
+    blockMSLE = msle;
     block.x = 0x03;
 
     // endpoints
@@ -251,7 +247,7 @@ void EncodeP1( inout uint4 block, inout float blockRMSLE, float3 texels[ 16 ] )
     block.w |= indices[ 15 ] << 28;
 }
 
-void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, float3 texels[ 16 ] )
+void EncodeP2Pattern( inout uint4 block, inout float blockMSLE, int pattern, float3 texels[ 16 ] )
 {
     float3 p0BlockMin = float3( HALF_MAX, HALF_MAX, HALF_MAX );
     float3 p0BlockMax = float3( 0.0f, 0.0f, 0.0f );
@@ -286,10 +282,10 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
 
 
     uint fixupID = PatternFixupID( pattern );
-    float p0TexelPos = f32tof16( dot( texels[ 0 ], p0BlockDir ) );
-    float p1TexelPos = f32tof16( dot( texels[ fixupID ], p1BlockDir ) );
-    uint p0FixupIndex = ComputeIndex3( p0TexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
-    uint p1FixupIndex = ComputeIndex3( p1TexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
+    float p0FixupTexelPos = f32tof16( dot( texels[ 0 ], p0BlockDir ) );
+    float p1FixupTexelPos = f32tof16( dot( texels[ fixupID ], p1BlockDir ) );
+    uint p0FixupIndex = ComputeIndex3( p0FixupTexelPos, p0Endpoint0Pos, p0Endpoint1Pos );
+    uint p1FixupIndex = ComputeIndex3( p1FixupTexelPos, p1Endpoint0Pos, p1Endpoint1Pos );
     if ( p0FixupIndex > 3 )
     {
         Swap( p0Endpoint0Pos, p0Endpoint1Pos );
@@ -350,8 +346,8 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
     float3 endpoint952Unq = Unquantize9( endpoint950 + endpoint952 );
     float3 endpoint953Unq = Unquantize9( endpoint950 + endpoint953 );
 
-    float rmsle76 = 0.0f;
-    float rmsle95 = 0.0f;
+    float msle76 = 0.0f;
+    float msle95 = 0.0f;
     for ( uint i = 0; i < 16; ++i )
     {
         uint paletteID = Pattern( pattern, i );
@@ -365,8 +361,8 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
         float3 texelUnc76 = FinishUnquantize( tmp760Unq, tmp761Unq, weight );
         float3 texelUnc95 = FinishUnquantize( tmp950Unq, tmp951Unq, weight );
 
-        rmsle76 += CalcRMSLE( texels[ i ], texelUnc76 );
-        rmsle95 += CalcRMSLE( texels[ i ], texelUnc95 );
+        msle76 += CalcMSLE( texels[ i ], texelUnc76 );
+        msle95 += CalcMSLE( texels[ i ], texelUnc95 );
     }
 
     SignExtend( endpoint761, 0x1F, 0x20 );
@@ -378,13 +374,13 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
     SignExtend( endpoint953, 0xF, 0x10 );
 
     // encode block
-    float p2RMSLE = min( rmsle76, rmsle95 );
-    if ( p2RMSLE < blockRMSLE )
+    float p2MSLE = min( msle76, msle95 );
+    if ( p2MSLE < blockMSLE )
     {
-        blockRMSLE   = p2RMSLE;
+        blockMSLE   = p2MSLE;
         block       = uint4( 0, 0, 0, 0 );
 
-        if ( p2RMSLE == rmsle76 )
+        if ( p2MSLE == msle76 )
         {
             // 7.6
             block.x = 0x1;
@@ -441,8 +437,8 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
         }
 
         block.z |= pattern << 13;
-        uint fixupID = PatternFixupID( pattern );
-        if ( fixupID == 15 )
+        uint blockFixupID = PatternFixupID( pattern );
+        if ( blockFixupID == 15 )
         {
             block.z |= indices[ 0 ] << 18;
             block.z |= indices[ 1 ] << 20;
@@ -461,7 +457,7 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
             block.w |= indices[ 14 ] << 27;
             block.w |= indices[ 15 ] << 30;
         }
-        else if ( fixupID == 2 )
+        else if ( blockFixupID == 2 )
         {
             block.z |= indices[ 0 ] << 18;
             block.z |= indices[ 1 ] << 20;
@@ -503,14 +499,14 @@ void EncodeP2Pattern( inout uint4 block, inout float blockRMSLE, int pattern, fl
     }
 }
 
-uint4 PSMain( PSInput i ) : SV_Target
+uint4 PSMain( PSInput input ) : SV_Target
 {
     // gather texels for current 4x4 block
     // 0 1 2 3
     // 4 5 6 7
     // 8 9 10 11
     // 12 13 14 15
-    float2 uv       = i.m_pos.xy * TextureSizeRcp * 4.0f - TextureSizeRcp;
+    float2 uv       = input.m_pos.xy * TextureSizeRcp * 4.0f - TextureSizeRcp;
     float2 block0UV = uv;
     float2 block1UV = uv + float2( 2.0f * TextureSizeRcp.x, 0.0f );
     float2 block2UV = uv + float2( 0.0f, 2.0f * TextureSizeRcp.y );
@@ -546,14 +542,14 @@ uint4 PSMain( PSInput i ) : SV_Target
     texels[ 14 ]    = float3( block3X.x, block3Y.x, block3Z.x );
     texels[ 15 ]    = float3( block3X.y, block3Y.y, block3Z.y );
 
-    uint4 block         = uint4( 0, 0, 0, 0 );
-    float blockRMSLE    = 0.0f;
+    uint4 block     = uint4( 0, 0, 0, 0 );
+    float blockMSLE = 0.0f;
 
-    EncodeP1( block, blockRMSLE, texels );
+    EncodeP1( block, blockMSLE, texels );
 #ifdef QUALITY
     for ( uint i = 0; i < 32; ++i )
     {
-        EncodeP2Pattern( block, blockRMSLE, i, texels );
+        EncodeP2Pattern( block, blockMSLE, i, texels );
     }
 #endif
 
