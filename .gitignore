@@ -1,0 +1,9 @@
+.vs
+Debug
+Release
+GPURealTimeBC6HDebug.exe
+*.ilk
+*.pdb
+*.iobj
+*.ipdb
+*.vcxproj.user
