@@ -2,7 +2,7 @@
 
 
 // Whether to use P2 modes (4 endpoints) for compression. Slow, but improves quality.
-#define ENCODE_P2 (QUALITY == 1)
+#define ENCODE_P2 0 //(QUALITY == 1)
 
 // Whether to optimize for luminance error or for RGB error
 #define LUMINANCE_WEIGHTS 1
@@ -156,7 +156,32 @@ void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 		blockMax = max(blockMax, texels[i]);
 	}
 
+#if 0
+	float3 logBlockMax = log2(blockMax + 1.0f);
+	float3 logBlockMin = log2(blockMin + 1.0f);
 
+	float3 center = (logBlockMin + logBlockMax) * 0.5f;
+
+	float cov_xz = 0.0f;
+	float cov_yz = 0.0f;
+	for (int i = 0; i < 16; i++) {
+		float3 t = log2(texels[i] + 1.0f) - center;
+		cov_xz += t.x * t.z;
+		cov_yz += t.y * t.z;
+	}
+
+	if (cov_xz < 0) 
+	{
+		Swap(blockMin.x, blockMax.x);
+	}
+
+	if (cov_yz < 0) 
+	{
+		Swap(blockMin.y, blockMax.y);
+	}	
+#endif
+
+#if 0
 	// refine endpoints in log2 RGB space
 	float3 refinedBlockMin = blockMax;
 	float3 refinedBlockMax = blockMin;
@@ -175,6 +200,7 @@ void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 	logBlockMax -= min(logBlockMax - logRefinedBlockMax, logBlockMaxExt);
 	blockMin = exp2(logBlockMin) - 1.0f;
 	blockMax = exp2(logBlockMax) - 1.0f;
+#endif
 
 	float3 blockDir = blockMax - blockMin;
 	blockDir = blockDir / (blockDir.x + blockDir.y + blockDir.z);
