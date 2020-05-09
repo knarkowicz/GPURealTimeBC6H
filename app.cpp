@@ -11,10 +11,14 @@ char const* ImagePathArr[] = { "atrium.dds", "backyard.dds", "desk.dds", "memori
 struct SShaderCB
 {
 	Vec2 m_screenSizeRcp;
+	unsigned m_imageSize[2];
+
 	Vec2 m_imageSizeRcp;
 	Vec2 m_texelBias;
+
 	float m_texelScale;
 	float m_exposure;
+	unsigned m_padding[2];
 };
 
 // https://gist.github.com/rygorous/2144712
@@ -44,36 +48,12 @@ static float HalfToFloat(uint16_t h)
 	return o.f;
 }
 
+uint32_t DivideAndRoundUp(uint32_t x, uint32_t divisor)
+{
+	return (x + divisor - 1) / divisor;
+}
+
 CApp::CApp()
-	: m_backbufferWidth(1280)
-	, m_backbufferHeight(720)
-	, m_blitVS(nullptr)
-	, m_blitPS(nullptr)
-	, m_compressVS(nullptr)
-	, m_compressFastPS(nullptr)
-	, m_compressQualityPS(nullptr)
-	, m_showCompressed(true)
-	, m_qualityMode(false)
-	, m_windowHandle(0)
-	, m_frameID(0)
-	, m_rmsle(0.0f)
-	, m_timeAcc(0.0f)
-	, m_timeAccSampleNum(0)
-	, m_compressionTime(0.0f)
-	, m_texelScale(1.0f)
-	, m_texelBias(0.0f, 0.0f)
-	, m_dragEnabled(false)
-	, m_updateRMSE(true)
-	, m_updateTitle(true)
-	, m_imageZoom(0.0f)
-	, m_imageExposure(0.0f)
-	, m_imageID(0)
-	, m_imageWidth(0)
-	, m_imageHeight(0)
-	, m_device(nullptr)
-	, m_ctx(nullptr)
-	, m_swapChain(nullptr)
-	, m_backBufferView(nullptr)
 {
 }
 
@@ -185,13 +165,13 @@ void CApp::CreateTargets()
 	texDesc.SampleDesc.Count = 1;
 	texDesc.SampleDesc.Quality = 0;
 	texDesc.Usage = D3D11_USAGE_DEFAULT;
-	texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 	texDesc.CPUAccessFlags = 0;
 	texDesc.MiscFlags = 0;
 	HRESULT hr = m_device->CreateTexture2D(&texDesc, nullptr, &m_compressTargetRes);
 	_ASSERT(SUCCEEDED(hr));
 
-	hr = m_device->CreateRenderTargetView(m_compressTargetRes, nullptr, &m_compressTargetView);
+	hr = m_device->CreateUnorderedAccessView(m_compressTargetRes, nullptr, &m_compressTargetUAV);
 	_ASSERT(SUCCEEDED(hr));
 
 	texDesc.Width = m_imageWidth;
@@ -228,7 +208,7 @@ void CApp::CreateTargets()
 
 void CApp::DestroyTargets()
 {
-	SAFE_RELEASE(m_compressTargetView);
+	SAFE_RELEASE(m_compressTargetUAV);
 	SAFE_RELEASE(m_compressTargetRes);
 	SAFE_RELEASE(m_tmpTargetView);
 	SAFE_RELEASE(m_tmpTargetRes);
@@ -327,63 +307,50 @@ void CApp::CreateShaders()
 #endif
 
 	HRESULT hr;
-	ID3DBlob* psBlob = nullptr;
-	ID3DBlob* vsBlob = nullptr;
+	ID3DBlob* shaderBlob = nullptr;
 	ID3DBlob* errorBlob = nullptr;
 
-	hr = D3DCompileFromFile(L"compress.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", shaderFlags, 0, &vsBlob, &errorBlob);
-	if (SUCCEEDED(hr))
+	// Compression compute shaders
+	for (uint32_t ModeIndex = 0; ModeIndex < COMPRESSION_MODE_NUM; ++ModeIndex)
 	{
-		m_device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_compressVS);
-	}
-	else
-	{
-		OutputDebugStringA((char const*)errorBlob->GetBufferPointer());
+		D3D_SHADER_MACRO macros[2];
+		macros[0].Name = "QUALITY";
+		macros[0].Definition = (ModeIndex == 0 ? "0" : "1");
+		macros[1].Name = nullptr;
+		macros[1].Definition = nullptr;
+
+		hr = D3DCompileFromFile(L"compress.hlsl", macros, nullptr, "CSMain", "cs_5_0", shaderFlags, 0, &shaderBlob, &errorBlob);
+		if (SUCCEEDED(hr))
+		{
+			m_device->CreateComputeShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), nullptr, &m_compressCS[ModeIndex]);
+		}
+		else
+		{
+			OutputDebugStringA((char const*)errorBlob->GetBufferPointer());
+		}
 	}
 
-	hr = D3DCompileFromFile(L"compress.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", shaderFlags, 0, &psBlob, &errorBlob);
-	if (SUCCEEDED(hr))
+	// Blit vertex and pixel shader
 	{
-		m_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_compressFastPS);
-	}
-	else
-	{
-		OutputDebugStringA((char const*)errorBlob->GetBufferPointer());
-	}
+		hr = D3DCompileFromFile(L"blit.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", shaderFlags, 0, &shaderBlob, &errorBlob);
+		if (SUCCEEDED(hr))
+		{
+			m_device->CreateVertexShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), nullptr, &m_blitVS);
+		}
+		else
+		{
+			OutputDebugStringA((char const*)errorBlob->GetBufferPointer());
+		}
 
-	D3D_SHADER_MACRO macro[2];
-	macro[0].Name = "QUALITY";
-	macro[0].Definition = "1";
-	macro[1].Name = nullptr;
-	macro[1].Definition = nullptr;
-	hr = D3DCompileFromFile(L"compress.hlsl", macro, nullptr, "PSMain", "ps_5_0", shaderFlags, 0, &psBlob, &errorBlob);
-	if (SUCCEEDED(hr))
-	{
-		m_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_compressQualityPS);
-	}
-	else
-	{
-		OutputDebugStringA((char const*)errorBlob->GetBufferPointer());
-	}
-
-	hr = D3DCompileFromFile(L"blit.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", shaderFlags, 0, &vsBlob, &errorBlob);
-	if (SUCCEEDED(hr))
-	{
-		m_device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_blitVS);
-	}
-	else
-	{
-		OutputDebugStringA((char const*)errorBlob->GetBufferPointer());
-	}
-
-	hr = D3DCompileFromFile(L"blit.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", shaderFlags, 0, &psBlob, &errorBlob);
-	if (SUCCEEDED(hr))
-	{
-		m_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_blitPS);
-	}
-	else
-	{
-		OutputDebugStringA((char const*)errorBlob->GetBufferPointer());
+		hr = D3DCompileFromFile(L"blit.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", shaderFlags, 0, &shaderBlob, &errorBlob);
+		if (SUCCEEDED(hr))
+		{
+			m_device->CreatePixelShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), nullptr, &m_blitPS);
+		}
+		else
+		{
+			OutputDebugStringA((char const*)errorBlob->GetBufferPointer());
+		}
 	}
 }
 
@@ -391,9 +358,11 @@ void CApp::DestroyShaders()
 {
 	SAFE_RELEASE(m_blitVS);
 	SAFE_RELEASE(m_blitPS);
-	SAFE_RELEASE(m_compressVS);
-	SAFE_RELEASE(m_compressFastPS);
-	SAFE_RELEASE(m_compressQualityPS);
+
+	for (unsigned i = 0; i < ARRAYSIZE(m_compressCS); ++i)
+	{
+		SAFE_RELEASE(m_compressCS[i]);
+	}
 }
 
 void CApp::Release()
@@ -431,7 +400,7 @@ void CApp::OnKeyDown(WPARAM wParam)
 		break;
 
 	case 'Q':
-		m_qualityMode = !m_qualityMode;
+		m_compressionMode = (m_compressionMode + 1) % COMPRESSION_MODE_NUM;
 		m_updateTitle = true;
 		m_updateRMSE = true;
 		break;
@@ -511,7 +480,7 @@ void CApp::UpdateTitle()
 	wchar_t title[256];
 	title[0] = 0;
 	swprintf(title, ARRAYSIZE(title), L"Time:%.3fms RMSLE:%.4f [q]Mode:%s [e]Show:%s [-/+]Exposure:%.1f [n]%S%dx%d [r]Reloadshaders",
-		m_compressionTime, m_rmsle, m_qualityMode ? L"Quality" : L"Fast", m_showCompressed ? L"Compressed" : L"Source", m_imageExposure, ImagePathArr[m_imageID], m_imageWidth, m_imageHeight);
+		m_compressionTime, m_rmsle, m_compressionMode == 1 ? L"Quality" : L"Fast", m_showCompressed ? L"Compressed" : L"Source", m_imageExposure, ImagePathArr[m_imageID], m_imageWidth, m_imageHeight);
 
 	SetWindowText(m_windowHandle, title);
 }
@@ -519,13 +488,13 @@ void CApp::UpdateTitle()
 void CApp::Render()
 {
 	m_ctx->ClearState();
-	m_ctx->Begin(m_disjointQueries[m_frameID % MAX_QUERY_FRAME_NUM]);
-	m_ctx->End(m_timeBeginQueries[m_frameID % MAX_QUERY_FRAME_NUM]);
 
 	m_ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 	m_ctx->IASetIndexBuffer(m_ib, DXGI_FORMAT_R16_UINT, 0);
 
 	SShaderCB shaderCB;
+	shaderCB.m_imageSize[0] = m_imageWidth;
+	shaderCB.m_imageSize[1] = m_imageHeight;
 	shaderCB.m_imageSizeRcp.x = 1.0f / m_imageWidth;
 	shaderCB.m_imageSizeRcp.y = 1.0f / m_imageHeight;
 	shaderCB.m_screenSizeRcp.x = 1.0f / m_backbufferWidth;
@@ -538,27 +507,22 @@ void CApp::Render()
 	m_ctx->Map(m_constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedRes);
 	memcpy(mappedRes.pData, &shaderCB, sizeof(shaderCB));
 	m_ctx->Unmap(m_constantBuffer, 0);
-	m_ctx->PSSetConstantBuffers(0, 1, &m_constantBuffer);
 
-	ID3D11PixelShader* compressPS = m_qualityMode ? m_compressQualityPS : m_compressFastPS;
-	if (m_compressVS && compressPS)
+	m_ctx->Begin(m_disjointQueries[m_frameID % MAX_QUERY_FRAME_NUM]);
+	m_ctx->End(m_timeBeginQueries[m_frameID % MAX_QUERY_FRAME_NUM]);
+
+	if (m_compressCS[m_compressionMode])
 	{
-		m_ctx->OMSetRenderTargets(1, &m_compressTargetView, nullptr);
+		m_ctx->CSSetShader(m_compressCS[m_compressionMode], nullptr, 0);
+		m_ctx->CSSetUnorderedAccessViews(0, 1, &m_compressTargetUAV, nullptr);
+		m_ctx->CSSetShaderResources(0, 1, &m_srcTextureView);
+		m_ctx->CSSetSamplers(0, 1, &m_pointSampler);
+		m_ctx->CSSetConstantBuffers(0, 1, &m_constantBuffer);
 
-		D3D11_VIEWPORT vp;
-		vp.Width = m_imageWidth / 4.0f;
-		vp.Height = m_imageHeight / 4.0f;
-		vp.MinDepth = 0.0f;
-		vp.MaxDepth = 1.0f;
-		vp.TopLeftX = 0;
-		vp.TopLeftY = 0;
-		m_ctx->RSSetViewports(1, &vp);
-
-		m_ctx->VSSetShader(m_compressVS, nullptr, 0);
-		m_ctx->PSSetShader(compressPS, nullptr, 0);
-		m_ctx->PSSetShaderResources(0, 1, &m_srcTextureView);
-		m_ctx->PSSetSamplers(0, 1, &m_pointSampler);
-		m_ctx->DrawIndexed(4, 0, 0);
+		uint32_t BCBlockSize = 4;
+		uint32_t ThreadsX = 8;
+		uint32_t ThreadsY = 8;
+		m_ctx->Dispatch(DivideAndRoundUp(m_imageWidth, BCBlockSize * ThreadsX), DivideAndRoundUp(m_imageWidth, BCBlockSize * ThreadsY), 1);
 	}
 
 	m_ctx->End(m_timeEndQueries[m_frameID % MAX_QUERY_FRAME_NUM]);
@@ -583,6 +547,7 @@ void CApp::Render()
 		m_ctx->PSSetShaderResources(0, 1, m_showCompressed ? &m_dstTextureView : &m_srcTextureView);
 		m_ctx->PSSetShaderResources(1, 1, m_showCompressed ? &m_srcTextureView : &m_dstTextureView);
 		m_ctx->PSSetSamplers(0, 1, &m_pointSampler);
+		m_ctx->PSSetConstantBuffers(0, 1, &m_constantBuffer);
 
 		m_ctx->DrawIndexed(4, 0, 0);
 	}

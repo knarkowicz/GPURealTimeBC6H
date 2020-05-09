@@ -9,12 +9,12 @@ struct PSInput
 cbuffer MainCB : register(b0)
 {
 	float2 ScreenSizeRcp;
+	uint2 TextureSize;
 	float2 TextureSizeRcp;
 	float2 TexelBias;
 	float TexelScale;
 	float Exposure;
 };
-
 PSInput VSMain(uint vertexID : SV_VertexID)
 {
 	PSInput output;
