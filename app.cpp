@@ -378,6 +378,7 @@ void CApp::OnKeyDown(WPARAM wParam)
 		DestroyShaders();
 		CreateShaders();
 		m_updateRMSE = true;
+		OutputDebugStringA("Recompiled shaders");
 		break;
 
 	case 'N':
@@ -479,8 +480,8 @@ void CApp::UpdateTitle()
 {
 	wchar_t title[256];
 	title[0] = 0;
-	swprintf(title, ARRAYSIZE(title), L"Time:%.3fms RMSLE:%.4f [q]Mode:%s [e]Show:%s [-/+]Exposure:%.1f [n]%S%dx%d [r]Reloadshaders",
-		m_compressionTime, m_rmsle, m_compressionMode == 1 ? L"Quality" : L"Fast", m_showCompressed ? L"Compressed" : L"Source", m_imageExposure, ImagePathArr[m_imageID], m_imageWidth, m_imageHeight);
+	swprintf(title, ARRAYSIZE(title), L"Time:%.3fms rgbRMSLE:%.5f lumRMSLE:%.5f [q]Mode:%s [e]Show:%s [-/+]Exposure:%.1f [n]%S%dx%d [r]Reloadshaders",
+		m_compressionTime, m_rgbRMSLE, m_lumRMSLE, m_compressionMode == 1 ? L"Quality" : L"Fast", m_showCompressed ? L"Compressed" : L"Source", m_imageExposure, ImagePathArr[m_imageID], m_imageWidth, m_imageHeight);
 
 	SetWindowText(m_windowHandle, title);
 }
@@ -519,10 +520,10 @@ void CApp::Render()
 		m_ctx->CSSetSamplers(0, 1, &m_pointSampler);
 		m_ctx->CSSetConstantBuffers(0, 1, &m_constantBuffer);
 
-		uint32_t BCBlockSize = 4;
-		uint32_t ThreadsX = 8;
-		uint32_t ThreadsY = 8;
-		m_ctx->Dispatch(DivideAndRoundUp(m_imageWidth, BCBlockSize * ThreadsX), DivideAndRoundUp(m_imageWidth, BCBlockSize * ThreadsY), 1);
+		uint32_t bcBlockSize = 4;
+		uint32_t threadsX = 8;
+		uint32_t threadsY = 8;
+		m_ctx->Dispatch(DivideAndRoundUp(m_imageWidth, bcBlockSize * threadsX), DivideAndRoundUp(m_imageHeight, bcBlockSize * threadsY), 1);
 	}
 
 	m_ctx->End(m_timeEndQueries[m_frameID % MAX_QUERY_FRAME_NUM]);
@@ -672,8 +673,10 @@ void CApp::UpdateRMSE()
 
 	CopyTexture(imageA, m_srcTextureView);
 	CopyTexture(imageB, m_dstTextureView);
-
-	double sum = 0.0;
+	
+	// Compute RGB and Luminance RMSE errors in log space
+	double rgbSum = 0.0;
+	double lumSum = 0.0;
 	for (unsigned y = 0; y < m_imageHeight; ++y)
 	{
 		for (unsigned x = 0; x < m_imageWidth; ++x)
@@ -688,10 +691,12 @@ void CApp::UpdateRMSE()
 			double dx = log(x1 + 1.0) - log(x0 + 1.0);
 			double dy = log(y1 + 1.0) - log(y0 + 1.0);
 			double dz = log(z1 + 1.0) - log(z0 + 1.0);
-			sum += dx * dx + dy * dy + dz * dz;
+			rgbSum += dx * dx + dy * dy + dz * dz;
+			lumSum += 0.299 * dx * dx + 0.587 * dy * dy + 0.114 * dz * dz;
 		}
 	}
-	m_rmsle = (float)sqrt(sum / (3.0 * m_imageWidth * m_imageHeight));
+	m_rgbRMSLE = (float)sqrt(rgbSum / (3.0 * m_imageWidth * m_imageHeight));
+	m_lumRMSLE = (float)sqrt(lumSum / (1.0 * m_imageWidth * m_imageHeight));
 
 	delete imageA;
 	delete imageB;

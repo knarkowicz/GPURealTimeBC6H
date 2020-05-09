@@ -96,7 +96,10 @@ private:
 	uint32_t m_imageWidth = 0;
 	uint32_t m_imageHeight = 0;
 	uint64_t m_frameID = 0;
-	float m_rmsle = 0.0f;
+
+	// Compression error
+	float m_rgbRMSLE = 0.0f;
+	float m_lumRMSLE = 0.0f;
 
 	void CreateImage();
 	void DestoryImage();

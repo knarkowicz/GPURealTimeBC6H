@@ -1,5 +1,13 @@
 #pragma warning(disable : 3078) // "loop control variable conflicts with a previous declaration in the outer scope"
 
+
+// Whether to use P2 modes (4 endpoints) for compression. Slow, but improves quality.
+#define ENCODE_P2 (QUALITY == 1)
+
+// Whether to optimize for luminance error or for RGB error
+#define LUMINANCE_WEIGHTS 1
+
+
 static const float HALF_MAX = 65504.0f;
 static const uint PATTERN_NUM = 32;
 
@@ -19,9 +27,15 @@ cbuffer MainCB : register(b0)
 
 float CalcMSLE(float3 a, float3 b)
 {
-	float3 err = log2((b + 1.0f) / (a + 1.0f));;
-	err = err * err;
-	return err.x + err.y + err.z;
+	float3 delta = log2((b + 1.0f) / (a + 1.0f));
+	float3 deltaSq = delta * delta;
+
+#if LUMINANCE_WEIGHTS
+	float3 luminanceWeights = float3(0.299f, 0.587f, 0.114f);
+	deltaSq *= luminanceWeights;
+#endif
+
+	return deltaSq.x + deltaSq.y + deltaSq.z;
 }
 
 uint PatternFixupID(uint i)
@@ -540,7 +554,8 @@ void CSMain(uint3 groupID : SV_GroupID,
 		float blockMSLE = 0.0f;
 
 		EncodeP1(block, blockMSLE, texels);
-#if QUALITY == 1
+
+#if ENCODE_P2
 		for (uint i = 0; i < 32; ++i)
 		{
 			EncodeP2Pattern(block, blockMSLE, i, texels);
