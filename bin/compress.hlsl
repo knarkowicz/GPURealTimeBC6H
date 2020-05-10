@@ -23,6 +23,7 @@ cbuffer MainCB : register(b0)
 	float2 TexelBias;
 	float TexelScale;
 	float Exposure;
+	uint BlitMode;
 };
 
 float CalcMSLE(float3 a, float3 b)

@@ -25,6 +25,7 @@ struct Vec3
 
 uint32_t const MAX_QUERY_FRAME_NUM = 5;
 uint32_t const COMPRESSION_MODE_NUM = 2;
+uint32_t const BLIT_MODE_NUM = 4;
 
 class CApp
 {
@@ -71,10 +72,10 @@ private:
 
 	// Resources
 	ID3D11Buffer* m_ib = nullptr;
-	ID3D11Texture2D* m_srcTextureRes = nullptr;
-	ID3D11ShaderResourceView* m_srcTextureView = nullptr;
-	ID3D11Texture2D* m_dstTextureRes = nullptr;
-	ID3D11ShaderResourceView* m_dstTextureView = nullptr;
+	ID3D11Texture2D* m_sourceTextureRes = nullptr;
+	ID3D11ShaderResourceView* m_sourceTextureView = nullptr;
+	ID3D11Texture2D* m_compressedTextureRes = nullptr;
+	ID3D11ShaderResourceView* m_compressedTextureView = nullptr;
 	ID3D11Texture2D* m_compressTargetRes = nullptr;
 	ID3D11UnorderedAccessView* m_compressTargetUAV = nullptr;
 	ID3D11Texture2D* m_tmpTargetRes = nullptr;
@@ -88,7 +89,6 @@ private:
 	float m_imageExposure = 0.0f;
 	bool m_dragEnabled = false;
 	Vec2 m_dragStart = Vec2(0.0f, 0.0f);
-	bool m_showCompressed = true;
 	uint32_t m_compressionMode = 0;
 	bool m_updateRMSE = true;
 	bool m_updateTitle = true;
@@ -96,6 +96,7 @@ private:
 	uint32_t m_imageWidth = 0;
 	uint32_t m_imageHeight = 0;
 	uint64_t m_frameID = 0;
+	uint32_t m_blitModeId = 0;
 
 	// Compression error
 	float m_rgbRMSLE = 0.0f;

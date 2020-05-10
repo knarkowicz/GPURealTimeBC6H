@@ -18,7 +18,8 @@ struct SShaderCB
 
 	float m_texelScale;
 	float m_exposure;
-	unsigned m_padding[2];
+	uint32_t m_blitMode;
+	uint32_t m_padding;
 };
 
 // https://gist.github.com/rygorous/2144712
@@ -267,7 +268,7 @@ void CApp::CreateImage()
 	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 	desc.SampleDesc.Count = 1;
 	desc.SampleDesc.Quality = 0;
-	HRESULT hr = m_device->CreateTexture2D(&desc, &initialData, &m_srcTextureRes);
+	HRESULT hr = m_device->CreateTexture2D(&desc, &initialData, &m_sourceTextureRes);
 	_ASSERT(SUCCEEDED(hr));
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC resViewDesc;
@@ -275,28 +276,28 @@ void CApp::CreateImage()
 	resViewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
 	resViewDesc.Texture2D.MostDetailedMip = 0;
 	resViewDesc.Texture2D.MipLevels = desc.MipLevels;
-	hr = m_device->CreateShaderResourceView(m_srcTextureRes, &resViewDesc, &m_srcTextureView);
+	hr = m_device->CreateShaderResourceView(m_sourceTextureRes, &resViewDesc, &m_sourceTextureView);
 	_ASSERT(SUCCEEDED(hr));
 
 	desc.Format = DXGI_FORMAT_BC6H_UF16;
 	desc.Usage = D3D11_USAGE_DEFAULT;
-	hr = m_device->CreateTexture2D(&desc, nullptr, &m_dstTextureRes);
+	hr = m_device->CreateTexture2D(&desc, nullptr, &m_compressedTextureRes);
 	_ASSERT(SUCCEEDED(hr));
 
 	resViewDesc.Format = desc.Format;
 	resViewDesc.Texture2D.MostDetailedMip = 0;
 	resViewDesc.Texture2D.MipLevels = desc.MipLevels;
 
-	hr = m_device->CreateShaderResourceView(m_dstTextureRes, &resViewDesc, &m_dstTextureView);
+	hr = m_device->CreateShaderResourceView(m_compressedTextureRes, &resViewDesc, &m_compressedTextureView);
 	_ASSERT(SUCCEEDED(hr));
 }
 
 void CApp::DestoryImage()
 {
-	SAFE_RELEASE(m_dstTextureView);
-	SAFE_RELEASE(m_dstTextureRes);
-	SAFE_RELEASE(m_srcTextureView);
-	SAFE_RELEASE(m_srcTextureRes);
+	SAFE_RELEASE(m_compressedTextureView);
+	SAFE_RELEASE(m_compressedTextureRes);
+	SAFE_RELEASE(m_sourceTextureView);
+	SAFE_RELEASE(m_sourceTextureRes);
 }
 
 void CApp::CreateShaders()
@@ -378,7 +379,7 @@ void CApp::OnKeyDown(WPARAM wParam)
 		DestroyShaders();
 		CreateShaders();
 		m_updateRMSE = true;
-		OutputDebugStringA("Recompiled shaders");
+		OutputDebugStringA("Recompiled shaders\n");
 		break;
 
 	case 'N':
@@ -396,7 +397,28 @@ void CApp::OnKeyDown(WPARAM wParam)
 		break;
 
 	case 'E':
-		m_showCompressed = !m_showCompressed;
+		// Flip between source and compressed image
+		m_blitModeId = (m_blitModeId + 1) % 2;
+		m_updateTitle = true;
+		break;
+
+	case '1':
+		m_blitModeId = 0;
+		m_updateTitle = true;
+		break;
+
+	case '2':
+		m_blitModeId = 1;
+		m_updateTitle = true;
+		break;
+
+	case '3':
+		m_blitModeId = 2;
+		m_updateTitle = true;
+		break;
+
+	case '4':
+		m_blitModeId = 3;
 		m_updateTitle = true;
 		break;
 
@@ -478,10 +500,18 @@ void CApp::OnResize()
 
 void CApp::UpdateTitle()
 {
+	const wchar_t* blitModeNames[BLIT_MODE_NUM] =
+	{
+		L"Source",
+		L"Compressed",
+		L"DiffRGB",
+		L"DiffLum"
+	};
+
 	wchar_t title[256];
 	title[0] = 0;
-	swprintf(title, ARRAYSIZE(title), L"Time:%.3fms rgbRMSLE:%.5f lumRMSLE:%.5f [q]Mode:%s [e]Show:%s [-/+]Exposure:%.1f [n]%S%dx%d [r]Reloadshaders",
-		m_compressionTime, m_rgbRMSLE, m_lumRMSLE, m_compressionMode == 1 ? L"Quality" : L"Fast", m_showCompressed ? L"Compressed" : L"Source", m_imageExposure, ImagePathArr[m_imageID], m_imageWidth, m_imageHeight);
+	swprintf(title, ARRAYSIZE(title), L"Time:%.3fms rgbRMSLE:%.4f lumRMSLE:%.4f [q]Mode:%s [1,2,3,4]Show:%s [-/+]Exposure:%.1f [n]%S%dx%d [r]Reloadshaders",
+		m_compressionTime, m_rgbRMSLE, m_lumRMSLE, m_compressionMode == 1 ? L"Quality" : L"Fast", blitModeNames[m_blitModeId], m_imageExposure, ImagePathArr[m_imageID], m_imageWidth, m_imageHeight);
 
 	SetWindowText(m_windowHandle, title);
 }
@@ -503,6 +533,7 @@ void CApp::Render()
 	shaderCB.m_texelBias = m_texelBias;
 	shaderCB.m_texelScale = m_texelScale;
 	shaderCB.m_exposure = exp(m_imageExposure);
+	shaderCB.m_blitMode = m_blitModeId;
 
 	D3D11_MAPPED_SUBRESOURCE mappedRes;
 	m_ctx->Map(m_constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedRes);
@@ -516,7 +547,7 @@ void CApp::Render()
 	{
 		m_ctx->CSSetShader(m_compressCS[m_compressionMode], nullptr, 0);
 		m_ctx->CSSetUnorderedAccessViews(0, 1, &m_compressTargetUAV, nullptr);
-		m_ctx->CSSetShaderResources(0, 1, &m_srcTextureView);
+		m_ctx->CSSetShaderResources(0, 1, &m_sourceTextureView);
 		m_ctx->CSSetSamplers(0, 1, &m_pointSampler);
 		m_ctx->CSSetConstantBuffers(0, 1, &m_constantBuffer);
 
@@ -529,7 +560,7 @@ void CApp::Render()
 	m_ctx->End(m_timeEndQueries[m_frameID % MAX_QUERY_FRAME_NUM]);
 	m_ctx->End(m_disjointQueries[m_frameID % MAX_QUERY_FRAME_NUM]);
 
-	m_ctx->CopyResource(m_dstTextureRes, m_compressTargetRes);
+	m_ctx->CopyResource(m_compressedTextureRes, m_compressTargetRes);
 
 	if (m_blitVS && m_blitPS)
 	{
@@ -545,8 +576,8 @@ void CApp::Render()
 
 		m_ctx->VSSetShader(m_blitVS, nullptr, 0);
 		m_ctx->PSSetShader(m_blitPS, nullptr, 0);
-		m_ctx->PSSetShaderResources(0, 1, m_showCompressed ? &m_dstTextureView : &m_srcTextureView);
-		m_ctx->PSSetShaderResources(1, 1, m_showCompressed ? &m_srcTextureView : &m_dstTextureView);
+		m_ctx->PSSetShaderResources(0, 1, &m_sourceTextureView);
+		m_ctx->PSSetShaderResources(1, 1, &m_compressedTextureView);
 		m_ctx->PSSetSamplers(0, 1, &m_pointSampler);
 		m_ctx->PSSetConstantBuffers(0, 1, &m_constantBuffer);
 
@@ -671,8 +702,8 @@ void CApp::UpdateRMSE()
 	Vec3* imageA = new Vec3[m_imageWidth * m_imageHeight];
 	Vec3* imageB = new Vec3[m_imageWidth * m_imageHeight];
 
-	CopyTexture(imageA, m_srcTextureView);
-	CopyTexture(imageB, m_dstTextureView);
+	CopyTexture(imageA, m_sourceTextureView);
+	CopyTexture(imageB, m_compressedTextureView);
 	
 	// Compute RGB and Luminance RMSE errors in log space
 	double rgbSum = 0.0;
