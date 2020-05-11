@@ -12,6 +12,7 @@ Algorithms
 Algorithms are based on:
 * "Real-Time DXT Compression" by J.M.P. van Waveren, 2006
 * "High Quality DXT Compression using CUDA" by Ignacio Castaño, 2007
+
 With some modifications for handling HDR range, new encoding modes and format, and optimizing for a perceptual error (optimizing for a log luminance error instead of a plain RGB error).
 
 Quality
