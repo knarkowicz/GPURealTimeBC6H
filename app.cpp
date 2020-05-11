@@ -398,27 +398,27 @@ void CApp::OnKeyDown(WPARAM wParam)
 
 	case 'E':
 		// Flip between source and compressed image
-		m_blitModeId = (m_blitModeId + 1) % 2;
+		m_blitMode = (m_blitMode + 1) % 2;
 		m_updateTitle = true;
 		break;
 
 	case '1':
-		m_blitModeId = 0;
+		m_blitMode = 0;
 		m_updateTitle = true;
 		break;
 
 	case '2':
-		m_blitModeId = 1;
+		m_blitMode = 1;
 		m_updateTitle = true;
 		break;
 
 	case '3':
-		m_blitModeId = 2;
+		m_blitMode = 2;
 		m_updateTitle = true;
 		break;
 
 	case '4':
-		m_blitModeId = 3;
+		m_blitMode = 3;
 		m_updateTitle = true;
 		break;
 
@@ -511,7 +511,7 @@ void CApp::UpdateTitle()
 	wchar_t title[256];
 	title[0] = 0;
 	swprintf(title, ARRAYSIZE(title), L"Time:%.3fms rgbRMSLE:%.4f lumRMSLE:%.4f [q]Mode:%s [1,2,3,4]Show:%s [-/+]Exposure:%.1f [n]%S%dx%d [r]Reloadshaders",
-		m_compressionTime, m_rgbRMSLE, m_lumRMSLE, m_compressionMode == 1 ? L"Quality" : L"Fast", blitModeNames[m_blitModeId], m_imageExposure, ImagePathArr[m_imageID], m_imageWidth, m_imageHeight);
+		m_compressionTime, m_rgbRMSLE, m_lumRMSLE, m_compressionMode == 1 ? L"Quality" : L"Fast", blitModeNames[m_blitMode], m_imageExposure, ImagePathArr[m_imageID], m_imageWidth, m_imageHeight);
 
 	SetWindowText(m_windowHandle, title);
 }
@@ -533,7 +533,7 @@ void CApp::Render()
 	shaderCB.m_texelBias = m_texelBias;
 	shaderCB.m_texelScale = m_texelScale;
 	shaderCB.m_exposure = exp(m_imageExposure);
-	shaderCB.m_blitMode = m_blitModeId;
+	shaderCB.m_blitMode = m_blitMode;
 
 	D3D11_MAPPED_SUBRESOURCE mappedRes;
 	m_ctx->Map(m_constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedRes);
@@ -654,6 +654,7 @@ void CApp::CopyTexture(Vec3* image, ID3D11ShaderResourceView* srcView)
 		m_ctx->VSSetShader(m_blitVS, nullptr, 0);
 		m_ctx->PSSetShader(m_blitPS, nullptr, 0);
 		m_ctx->PSSetShaderResources(0, 1, &srcView);
+		m_ctx->PSSetShaderResources(1, 1, &srcView);
 		m_ctx->PSSetSamplers(0, 1, &m_pointSampler);
 
 		m_ctx->DrawIndexed(4, 0, 0);
@@ -691,6 +692,7 @@ void CApp::UpdateRMSE()
 	shaderCB.m_texelBias = Vec2(0.0f, 0.0f);
 	shaderCB.m_texelScale = 1.0f;
 	shaderCB.m_exposure = 1.0f;
+	shaderCB.m_blitMode = 0;
 
 	D3D11_MAPPED_SUBRESOURCE mappedRes;
 	m_ctx->Map(m_constantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedRes);
@@ -706,8 +708,9 @@ void CApp::UpdateRMSE()
 	CopyTexture(imageB, m_compressedTextureView);
 	
 	// Compute RGB and Luminance RMSE errors in log space
-	double rgbSum = 0.0;
-	double lumSum = 0.0;
+	double rSum = 0.0;
+	double gSum = 0.0;
+	double bSum = 0.0;
 	for (unsigned y = 0; y < m_imageHeight; ++y)
 	{
 		for (unsigned x = 0; x < m_imageWidth; ++x)
@@ -722,12 +725,13 @@ void CApp::UpdateRMSE()
 			double dx = log(x1 + 1.0) - log(x0 + 1.0);
 			double dy = log(y1 + 1.0) - log(y0 + 1.0);
 			double dz = log(z1 + 1.0) - log(z0 + 1.0);
-			rgbSum += dx * dx + dy * dy + dz * dz;
-			lumSum += 0.299 * dx * dx + 0.587 * dy * dy + 0.114 * dz * dz;
+			rSum += dx * dx;
+			gSum += dy * dy;
+			bSum += dy * dy;
 		}
 	}
-	m_rgbRMSLE = (float)sqrt(rgbSum / (3.0 * m_imageWidth * m_imageHeight));
-	m_lumRMSLE = (float)sqrt(lumSum / (1.0 * m_imageWidth * m_imageHeight));
+	m_rgbRMSLE = (float)sqrt((rSum + gSum + bSum) / (3.0 * m_imageWidth * m_imageHeight));
+	m_lumRMSLE = (float)sqrt((0.299 * rSum + 0.587 * gSum + 0.114 * bSum) / (1.0 * m_imageWidth * m_imageHeight));
 
 	delete imageA;
 	delete imageB;

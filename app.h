@@ -89,14 +89,15 @@ private:
 	float m_imageExposure = 0.0f;
 	bool m_dragEnabled = false;
 	Vec2 m_dragStart = Vec2(0.0f, 0.0f);
-	uint32_t m_compressionMode = 0;
 	bool m_updateRMSE = true;
 	bool m_updateTitle = true;
 	uint32_t m_imageID = 0;
 	uint32_t m_imageWidth = 0;
 	uint32_t m_imageHeight = 0;
 	uint64_t m_frameID = 0;
-	uint32_t m_blitModeId = 0;
+
+	uint32_t m_compressionMode = 0;
+	uint32_t m_blitMode = 1;
 
 	// Compression error
 	float m_rgbRMSLE = 0.0f;

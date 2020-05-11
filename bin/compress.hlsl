@@ -4,6 +4,10 @@
 // Whether to use P2 modes (4 endpoints) for compression. Slow, but improves quality.
 #define ENCODE_P2 (QUALITY == 1)
 
+// Improve quality at small performance loss. For now P1 only. Should be also implemented for P2.
+#define INSET_COLOR_BBOX 1
+#define OPTIMIZE_ENDPOINTS 1
+
 // Whether to optimize for luminance error or for RGB error
 #define LUMINANCE_WEIGHTS 1
 
@@ -146,6 +150,75 @@ void SignExtend(inout float3 v1, uint mask, uint signFlag)
 	v1 = v;
 }
 
+// Refine endpoints by insetting bounding box in log2 RGB space
+void InsetColorBBox(float3 texels[16], inout float3 blockMin, inout float3 blockMax)
+{
+	float3 refinedBlockMin = blockMax;
+	float3 refinedBlockMax = blockMin;
+
+	for (uint i = 0; i < 16; ++i)
+	{
+		refinedBlockMin = min(refinedBlockMin, texels[i] == blockMin ? refinedBlockMin : texels[i]);
+		refinedBlockMax = max(refinedBlockMax, texels[i] == blockMax ? refinedBlockMax : texels[i]);
+	}
+
+	float3 logRefinedBlockMax = log2(refinedBlockMax + 1.0f);
+	float3 logRefinedBlockMin = log2(refinedBlockMin + 1.0f);
+
+	float3 logBlockMax = log2(blockMax + 1.0f);
+	float3 logBlockMin = log2(blockMin + 1.0f);
+	float3 logBlockMaxExt = (logBlockMax - logBlockMin) * (1.0f / 32.0f);
+
+	logBlockMin += min(logRefinedBlockMin - logBlockMin, logBlockMaxExt);
+	logBlockMax -= min(logBlockMax - logRefinedBlockMax, logBlockMaxExt);
+
+	blockMin = exp2(logBlockMin) - 1.0f;
+	blockMax = exp2(logBlockMax) - 1.0f;
+}
+
+// Least squares optimization to find best endpoints for the selected block indices
+void OptimizeEndpoints(float3 texels[16], inout float3 blockMin, inout float3 blockMax)
+{
+	float3 blockDir = blockMax - blockMin;
+	blockDir = blockDir / (blockDir.x + blockDir.y + blockDir.z);
+
+	float endPoint0Pos = f32tof16(dot(blockMin, blockDir));
+	float endPoint1Pos = f32tof16(dot(blockMax, blockDir));
+
+	float3 alphaTexelSum = 0.0f;
+	float3 betaTexelSum = 0.0f;
+	float alphaBetaSum = 0.0f;
+	float alphaSqSum = 0.0f;
+	float betaSqSum = 0.0f;
+
+	for (int i = 0; i < 16; i++)
+	{
+		float texelPos = f32tof16(dot(texels[i], blockDir));
+		uint texelIndex = ComputeIndex4(texelPos, endPoint0Pos, endPoint1Pos);
+
+		float beta = saturate(texelIndex / 15.0f);
+		float alpha = 1.0f - beta;
+
+		float3 texelF16 = f32tof16(texels[i].xyz);
+		alphaTexelSum += alpha * texelF16;
+		betaTexelSum += beta * texelF16;
+
+		alphaBetaSum += alpha * beta;
+
+		alphaSqSum += alpha * alpha;
+		betaSqSum += beta * beta;
+	}
+
+	float det = alphaSqSum * betaSqSum - alphaBetaSum * alphaBetaSum;
+
+	if (abs(det) > 0.00001f)
+	{
+		float detRcp = rcp(det);
+		blockMin = f16tof32(clamp(detRcp * (alphaTexelSum * betaSqSum - betaTexelSum * alphaBetaSum), 0.0f, HALF_MAX));
+		blockMax = f16tof32(clamp(detRcp * (betaTexelSum * alphaSqSum - alphaTexelSum * alphaBetaSum), 0.0f, HALF_MAX));
+	}
+}
+
 void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 {
 	// compute endpoints (min/max RGB bbox)
@@ -157,24 +230,14 @@ void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 		blockMax = max(blockMax, texels[i]);
 	}
 
-	// refine endpoints in log2 RGB space
-	float3 refinedBlockMin = blockMax;
-	float3 refinedBlockMax = blockMin;
-	for (uint i = 0; i < 16; ++i)
-	{
-		refinedBlockMin = min(refinedBlockMin, texels[i] == blockMin ? refinedBlockMin : texels[i]);
-		refinedBlockMax = max(refinedBlockMax, texels[i] == blockMax ? refinedBlockMax : texels[i]);
-	}
+#if INSET_COLOR_BBOX
+	InsetColorBBox(texels, blockMin, blockMax);
+#endif
 
-	float3 logBlockMax = log2(blockMax + 1.0f);
-	float3 logBlockMin = log2(blockMin + 1.0f);
-	float3 logRefinedBlockMax = log2(refinedBlockMax + 1.0f);
-	float3 logRefinedBlockMin = log2(refinedBlockMin + 1.0f);
-	float3 logBlockMaxExt = (logBlockMax - logBlockMin) * (1.0f / 32.0f);
-	logBlockMin += min(logRefinedBlockMin - logBlockMin, logBlockMaxExt);
-	logBlockMax -= min(logBlockMax - logRefinedBlockMax, logBlockMaxExt);
-	blockMin = exp2(logBlockMin) - 1.0f;
-	blockMax = exp2(logBlockMax) - 1.0f;
+#if OPTIMIZE_ENDPOINTS
+	OptimizeEndpoints(texels, blockMin, blockMax);
+#endif
+
 
 	float3 blockDir = blockMax - blockMin;
 	blockDir = blockDir / (blockDir.x + blockDir.y + blockDir.z);
@@ -183,7 +246,6 @@ void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 	float3 endpoint1 = Quantize10(blockMax);
 	float endPoint0Pos = f32tof16(dot(blockMin, blockDir));
 	float endPoint1Pos = f32tof16(dot(blockMax, blockDir));
-
 
 	// check if endpoint swap is required
 	float fixupTexelPos = f32tof16(dot(texels[0], blockDir));
