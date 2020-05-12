@@ -5,7 +5,7 @@ Real-time BC6H compressor which runs on a GPU. Includes a small testbed applicat
 
 Compressor has two presets: 
 * "Fast" - compresses a standard 256x256x6 cubemap in 0.02ms on NV P4000 (GPU perf in between NV GTX 1060 and NV GTX 1070).
-* "Quality" - compresses a standard 256x256x6 cubemap in 1.3ms on on NV P4000. Compression quality is comparable to fast/normal presets of offline compressors.
+* "Quality" - compresses a standard 256x256x6 cubemap in 0.528ms on on NV P4000. Compression quality is comparable to fast/normal presets of offline compressors.
 
 Algorithms
 ===
@@ -21,11 +21,11 @@ Quality compared using RMSLE (lower is better).
 
 |          | GPU Real-Time BC6H "Fast" | GPU Real-Time BC6H "Quality"  | Intel "Very fast" | Intel "Fast" | Intel "Basic" | Intel "Slow" | Intel "Very slow" | DirectXTex 
 | -------  | ------------------------- | ----------------------------- | ----------------- | ------------ | ------------- | ------------ | ----------------- | ----------
-| Atrium   | 0.0074                    | 0.0065                        | 0.0080            | 0.0069       | 0.0067        | 0.0067       | 0.0067            | 0.0079     
-| Backyard | 0.0068                    | 0.0073                        | 0.0072            | 0.0067       | 0.0065        | 0.0065       | 0.0065            | 0.0075     
-| Desk     | 0.0447                    | 0.0315                        | 0.0470            | 0.0307       | 0.0298        | 0.0294       | 0.0293            | 0.0413     
-| Memorial | 0.0158                    | 0.0135                        | 0.0192            | 0.0135       | 0.0133        | 0.0132       | 0.0131            | 0.0243      
-| Yucca    | 0.0168                    | 0.0119                        | 0.0145            | 0.0108       | 0.0105        | 0.0103       | 0.0103            | 0.0124     
+| Atrium   | 0.0074                    | 0.0066                        | 0.0080            | 0.0069       | 0.0067        | 0.0067       | 0.0067            | 0.0079     
+| Backyard | 0.0073                    | 0.0070                        | 0.0072            | 0.0067       | 0.0065        | 0.0065       | 0.0065            | 0.0075     
+| Desk     | 0.0447                    | 0.0328                        | 0.0470            | 0.0307       | 0.0298        | 0.0294       | 0.0293            | 0.0413     
+| Memorial | 0.0158                    | 0.0126                        | 0.0192            | 0.0135       | 0.0133        | 0.0132       | 0.0131            | 0.0243      
+| Yucca    | 0.0168                    | 0.0123                        | 0.0145            | 0.0108       | 0.0105        | 0.0103       | 0.0103            | 0.0124     
 
 License
 ===

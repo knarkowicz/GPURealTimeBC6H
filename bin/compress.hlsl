@@ -4,7 +4,7 @@
 // Whether to use P2 modes (4 endpoints) for compression. Slow, but improves quality.
 #define ENCODE_P2 (QUALITY == 1)
 
-// Improve quality at small performance loss. For now P1 only. Should be also implemented for P2.
+// Improve quality at small performance loss
 #define INSET_COLOR_BBOX 1
 #define OPTIMIZE_ENDPOINTS 1
 
@@ -177,7 +177,7 @@ void InsetColorBBox(float3 texels[16], inout float3 blockMin, inout float3 block
 }
 
 // Least squares optimization to find best endpoints for the selected block indices
-void OptimizeEndpoints(float3 texels[16], inout float3 blockMin, inout float3 blockMax)
+void OptimizeEndpointsP1(float3 texels[16], inout float3 blockMin, inout float3 blockMax)
 {
 	float3 blockDir = blockMax - blockMin;
 	blockDir = blockDir / (blockDir.x + blockDir.y + blockDir.z);
@@ -219,6 +219,53 @@ void OptimizeEndpoints(float3 texels[16], inout float3 blockMin, inout float3 bl
 	}
 }
 
+// Least squares optimization to find best endpoints for the selected block indices
+void OptimizeEndpointsP2(float3 texels[16], uint pattern, uint patternSelector, inout float3 blockMin, inout float3 blockMax)
+{
+	float3 blockDir = blockMax - blockMin;
+	blockDir = blockDir / (blockDir.x + blockDir.y + blockDir.z);
+
+	float endPoint0Pos = f32tof16(dot(blockMin, blockDir));
+	float endPoint1Pos = f32tof16(dot(blockMax, blockDir));
+
+	float3 alphaTexelSum = 0.0f;
+	float3 betaTexelSum = 0.0f;
+	float alphaBetaSum = 0.0f;
+	float alphaSqSum = 0.0f;
+	float betaSqSum = 0.0f;
+
+	for (int i = 0; i < 16; i++)
+	{
+		uint paletteID = Pattern(pattern, i);
+		if (paletteID == patternSelector)
+		{
+			float texelPos = f32tof16(dot(texels[i], blockDir));
+			uint texelIndex = ComputeIndex3(texelPos, endPoint0Pos, endPoint1Pos);
+
+			float beta = saturate(texelIndex / 7.0f);
+			float alpha = 1.0f - beta;
+
+			float3 texelF16 = f32tof16(texels[i].xyz);
+			alphaTexelSum += alpha * texelF16;
+			betaTexelSum += beta * texelF16;
+
+			alphaBetaSum += alpha * beta;
+
+			alphaSqSum += alpha * alpha;
+			betaSqSum += beta * beta;
+		}
+	}
+
+	float det = alphaSqSum * betaSqSum - alphaBetaSum * alphaBetaSum;
+
+	if (abs(det) > 0.00001f)
+	{
+		float detRcp = rcp(det);
+		blockMin = f16tof32(clamp(detRcp * (alphaTexelSum * betaSqSum - betaTexelSum * alphaBetaSum), 0.0f, HALF_MAX));
+		blockMax = f16tof32(clamp(detRcp * (betaTexelSum * alphaSqSum - alphaTexelSum * alphaBetaSum), 0.0f, HALF_MAX));
+	}
+}
+
 void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 {
 	// compute endpoints (min/max RGB bbox)
@@ -235,7 +282,7 @@ void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 #endif
 
 #if OPTIMIZE_ENDPOINTS
-	OptimizeEndpoints(texels, blockMin, blockMax);
+	OptimizeEndpointsP1(texels, blockMin, blockMax);
 #endif
 
 
@@ -310,6 +357,57 @@ void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 	block.w |= indices[15] << 28;
 }
 
+float DistToLineSq(float3 PointOnLine, float3 LineDirection, float3 Point)
+{
+	float3 w = Point - PointOnLine;
+	float3 x = w - dot(w, LineDirection) * LineDirection;
+	return dot(x, x);
+}
+
+// Evaluate how good is given P2 pattern for encoding current block
+float EvaluateP2Pattern(int pattern, float3 texels[16])
+{
+	float3 p0BlockMin = float3(HALF_MAX, HALF_MAX, HALF_MAX);
+	float3 p0BlockMax = float3(0.0f, 0.0f, 0.0f);
+	float3 p1BlockMin = float3(HALF_MAX, HALF_MAX, HALF_MAX);
+	float3 p1BlockMax = float3(0.0f, 0.0f, 0.0f);
+
+	for (uint i = 0; i < 16; ++i)
+	{
+		uint paletteID = Pattern(pattern, i);
+		if (paletteID == 0)
+		{
+			p0BlockMin = min(p0BlockMin, texels[i]);
+			p0BlockMax = max(p0BlockMax, texels[i]);
+		}
+		else
+		{
+			p1BlockMin = min(p1BlockMin, texels[i]);
+			p1BlockMax = max(p1BlockMax, texels[i]);
+		}
+	}
+
+	float3 p0BlockDir = normalize(p0BlockMax - p0BlockMin);
+	float3 p1BlockDir = normalize(p1BlockMax - p1BlockMin);
+
+	float sqDistanceFromLine = 0.0f;
+
+	for (uint i = 0; i < 16; ++i)
+	{
+		uint paletteID = Pattern(pattern, i);
+		if (paletteID == 0)
+		{
+			sqDistanceFromLine += DistToLineSq(p0BlockMin, p0BlockDir, texels[i]);
+		}
+		else
+		{
+			sqDistanceFromLine += DistToLineSq(p1BlockMin, p1BlockDir, texels[i]);
+		}
+	}
+
+	return sqDistanceFromLine;
+}
+
 void EncodeP2Pattern(inout uint4 block, inout float blockMSLE, int pattern, float3 texels[16])
 {
 	float3 p0BlockMin = float3(HALF_MAX, HALF_MAX, HALF_MAX);
@@ -331,6 +429,11 @@ void EncodeP2Pattern(inout uint4 block, inout float blockMSLE, int pattern, floa
 			p1BlockMax = max(p1BlockMax, texels[i]);
 		}
 	}
+
+#if OPTIMIZE_ENDPOINTS
+	OptimizeEndpointsP2(texels, pattern, 0, p0BlockMin, p0BlockMax);
+	OptimizeEndpointsP2(texels, pattern, 1, p1BlockMin, p1BlockMax);
+#endif
 
 	float3 p0BlockDir = p0BlockMax - p0BlockMin;
 	float3 p1BlockDir = p1BlockMax - p1BlockMin;
@@ -618,10 +721,22 @@ void CSMain(uint3 groupID : SV_GroupID,
 		EncodeP1(block, blockMSLE, texels);
 
 #if ENCODE_P2
-		for (uint i = 0; i < 32; ++i)
+		// First find pattern which is a best fit for a current block
+		float bestScore = EvaluateP2Pattern(0, texels);
+		uint bestPattern = 0;
+
+		for (uint patternIndex = 1; patternIndex < 32; ++patternIndex)
 		{
-			EncodeP2Pattern(block, blockMSLE, i, texels);
+			float score = EvaluateP2Pattern(patternIndex, texels);
+			if (score < bestScore)
+			{
+				bestPattern = patternIndex;
+				bestScore = score;
+			}
 		}
+
+		// Then encode it
+		EncodeP2Pattern(block, blockMSLE, bestPattern, texels);
 #endif
 
 		OutputTexture[uint2(texelCoord)] = block;

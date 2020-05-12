@@ -736,5 +736,10 @@ void CApp::UpdateRMSE()
 	delete imageA;
 	delete imageB;
 
+	char rmseString[256];
+	rmseString[0] = 0;
+	sprintf_s(rmseString, "rgbRMSLE:%.4f lumRMSLE:%.4f Mode:%s %s\n", m_rgbRMSLE, m_lumRMSLE, m_compressionMode == 1 ? "Quality" : "Fast", ImagePathArr[m_imageID]);
+	OutputDebugStringA(rmseString);
+
 	m_updateTitle = true;
 }
