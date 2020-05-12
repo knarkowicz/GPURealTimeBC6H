@@ -151,7 +151,7 @@ void SignExtend(inout float3 v1, uint mask, uint signFlag)
 }
 
 // Refine endpoints by insetting bounding box in log2 RGB space
-void InsetColorBBox(float3 texels[16], inout float3 blockMin, inout float3 blockMax)
+void InsetColorBBoxP1(float3 texels[16], inout float3 blockMin, inout float3 blockMax)
 {
 	float3 refinedBlockMin = blockMax;
 	float3 refinedBlockMax = blockMin;
@@ -160,6 +160,36 @@ void InsetColorBBox(float3 texels[16], inout float3 blockMin, inout float3 block
 	{
 		refinedBlockMin = min(refinedBlockMin, texels[i] == blockMin ? refinedBlockMin : texels[i]);
 		refinedBlockMax = max(refinedBlockMax, texels[i] == blockMax ? refinedBlockMax : texels[i]);
+	}
+
+	float3 logRefinedBlockMax = log2(refinedBlockMax + 1.0f);
+	float3 logRefinedBlockMin = log2(refinedBlockMin + 1.0f);
+
+	float3 logBlockMax = log2(blockMax + 1.0f);
+	float3 logBlockMin = log2(blockMin + 1.0f);
+	float3 logBlockMaxExt = (logBlockMax - logBlockMin) * (1.0f / 32.0f);
+
+	logBlockMin += min(logRefinedBlockMin - logBlockMin, logBlockMaxExt);
+	logBlockMax -= min(logBlockMax - logRefinedBlockMax, logBlockMaxExt);
+
+	blockMin = exp2(logBlockMin) - 1.0f;
+	blockMax = exp2(logBlockMax) - 1.0f;
+}
+
+// Refine endpoints by insetting bounding box in log2 RGB space
+void InsetColorBBoxP2(float3 texels[16], uint pattern, uint patternSelector, inout float3 blockMin, inout float3 blockMax)
+{
+	float3 refinedBlockMin = blockMax;
+	float3 refinedBlockMax = blockMin;
+
+	for (uint i = 0; i < 16; ++i)
+	{
+		uint paletteID = Pattern(pattern, i);
+		if (paletteID == patternSelector)
+		{
+			refinedBlockMin = min(refinedBlockMin, texels[i] == blockMin ? refinedBlockMin : texels[i]);
+			refinedBlockMax = max(refinedBlockMax, texels[i] == blockMax ? refinedBlockMax : texels[i]);
+		}
 	}
 
 	float3 logRefinedBlockMax = log2(refinedBlockMax + 1.0f);
@@ -278,7 +308,7 @@ void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 	}
 
 #if INSET_COLOR_BBOX
-	InsetColorBBox(texels, blockMin, blockMax);
+	InsetColorBBoxP1(texels, blockMin, blockMax);
 #endif
 
 #if OPTIMIZE_ENDPOINTS
@@ -429,6 +459,12 @@ void EncodeP2Pattern(inout uint4 block, inout float blockMSLE, int pattern, floa
 			p1BlockMax = max(p1BlockMax, texels[i]);
 		}
 	}
+
+#if INSET_COLOR_BBOX
+	// Disabled because it was a negligible quality increase
+	//InsetColorBBoxP2(texels, pattern, 0, p0BlockMin, p0BlockMax);
+	//InsetColorBBoxP2(texels, pattern, 1, p1BlockMin, p1BlockMax);
+#endif
 
 #if OPTIMIZE_ENDPOINTS
 	OptimizeEndpointsP2(texels, pattern, 0, p0BlockMin, p0BlockMax);

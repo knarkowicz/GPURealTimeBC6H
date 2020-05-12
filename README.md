@@ -4,8 +4,8 @@ GPURealTimeBC6H
 Real-time BC6H compressor which runs on a GPU. Includes a small testbed application. This compressor is used in a few released AA/AAA games.
 
 Compressor has two presets: 
-* "Fast" - compresses a standard 256x256x6 cubemap in 0.02ms on NV P4000 (GPU perf in between NV GTX 1060 and NV GTX 1070).
-* "Quality" - compresses a standard 256x256x6 cubemap in 0.528ms on on NV P4000. Compression quality is comparable to fast/normal presets of offline compressors.
+* "Fast" - compresses a standard 256x256x6 cubemap in 0.02ms on NV P4000 (GPU perf in between NV GTX 1060 and NV GTX 1070). Compression quality is comparable to fast presets of offline compressors.
+* "Quality" - compresses a standard 256x256x6 cubemap in 0.528ms on on NV P4000. Compression quality is comparable to normal presets of offline compressors.
 
 Algorithms
 ===
