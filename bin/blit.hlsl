@@ -10,7 +10,7 @@ struct PSInput
 cbuffer MainCB : register(b0)
 {
 	float2 ScreenSizeRcp;
-	uint2 TextureSize;
+	uint2 TextureSizeInBlocks;
 	float2 TextureSizeRcp;
 	float2 TexelBias;
 	float TexelScale;

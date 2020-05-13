@@ -7,11 +7,12 @@
 CApp gApp;
 
 char const* ImagePathArr[] = { "atrium.dds", "backyard.dds", "desk.dds", "memorial.dds", "yucca.dds" };
+const uint32_t BC_BLOCK_SIZE = 4;
 
 struct SShaderCB
 {
 	Vec2 m_screenSizeRcp;
-	unsigned m_imageSize[2];
+	unsigned m_textureSizeInBlocks[2];
 
 	Vec2 m_imageSizeRcp;
 	Vec2 m_texelBias;
@@ -158,8 +159,8 @@ bool CApp::Init(HWND windowHandle)
 void CApp::CreateTargets()
 {
 	D3D11_TEXTURE2D_DESC texDesc;
-	texDesc.Width = m_imageWidth / 4;
-	texDesc.Height = m_imageHeight / 4;
+	texDesc.Width = DivideAndRoundUp(m_imageWidth, BC_BLOCK_SIZE);
+	texDesc.Height = DivideAndRoundUp(m_imageHeight, BC_BLOCK_SIZE);
 	texDesc.MipLevels = 1;
 	texDesc.ArraySize = 1;
 	texDesc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
@@ -524,8 +525,8 @@ void CApp::Render()
 	m_ctx->IASetIndexBuffer(m_ib, DXGI_FORMAT_R16_UINT, 0);
 
 	SShaderCB shaderCB;
-	shaderCB.m_imageSize[0] = m_imageWidth;
-	shaderCB.m_imageSize[1] = m_imageHeight;
+	shaderCB.m_textureSizeInBlocks[0] = DivideAndRoundUp(m_imageWidth, BC_BLOCK_SIZE);
+	shaderCB.m_textureSizeInBlocks[1] = DivideAndRoundUp(m_imageHeight, BC_BLOCK_SIZE);
 	shaderCB.m_imageSizeRcp.x = 1.0f / m_imageWidth;
 	shaderCB.m_imageSizeRcp.y = 1.0f / m_imageHeight;
 	shaderCB.m_screenSizeRcp.x = 1.0f / m_backbufferWidth;
@@ -551,10 +552,9 @@ void CApp::Render()
 		m_ctx->CSSetSamplers(0, 1, &m_pointSampler);
 		m_ctx->CSSetConstantBuffers(0, 1, &m_constantBuffer);
 
-		uint32_t bcBlockSize = 4;
 		uint32_t threadsX = 8;
 		uint32_t threadsY = 8;
-		m_ctx->Dispatch(DivideAndRoundUp(m_imageWidth, bcBlockSize * threadsX), DivideAndRoundUp(m_imageHeight, bcBlockSize * threadsY), 1);
+		m_ctx->Dispatch(DivideAndRoundUp(m_imageWidth, BC_BLOCK_SIZE * threadsX), DivideAndRoundUp(m_imageHeight, BC_BLOCK_SIZE * threadsY), 1);
 	}
 
 	m_ctx->End(m_timeEndQueries[m_frameID % MAX_QUERY_FRAME_NUM]);

@@ -22,7 +22,7 @@ SamplerState PointSampler : register(s0);
 cbuffer MainCB : register(b0)
 {
 	float2 ScreenSizeRcp;
-	uint2 TextureSize;
+	uint2 TextureSizeInBlocks;
 	float2 TextureSizeRcp;
 	float2 TexelBias;
 	float TexelScale;
@@ -706,16 +706,16 @@ void CSMain(uint3 groupID : SV_GroupID,
 	uint3 dispatchThreadID : SV_DispatchThreadID, 
 	uint3 groupThreadID : SV_GroupThreadID)
 {
-	uint2 texelCoord = dispatchThreadID.xy;
+	uint2 blockCoord = dispatchThreadID.xy;
 
-	if (all(texelCoord < TextureSize))
+	if (all(blockCoord < TextureSizeInBlocks))
 	{
 		// Gather texels for current 4x4 block
 		// 0 1 2 3
 		// 4 5 6 7
 		// 8 9 10 11
 		// 12 13 14 15
-		float2 uv = texelCoord * TextureSizeRcp * 4.0f + TextureSizeRcp;
+		float2 uv = blockCoord * TextureSizeRcp * 4.0f + TextureSizeRcp;
 		float2 block0UV = uv;
 		float2 block1UV = uv + float2(2.0f * TextureSizeRcp.x, 0.0f);
 		float2 block2UV = uv + float2(0.0f, 2.0f * TextureSizeRcp.y);
@@ -775,6 +775,6 @@ void CSMain(uint3 groupID : SV_GroupID,
 		EncodeP2Pattern(block, blockMSLE, bestPattern, texels);
 #endif
 
-		OutputTexture[uint2(texelCoord)] = block;
+		OutputTexture[blockCoord] = block;
 	}
 }
