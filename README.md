@@ -7,13 +7,13 @@ Compressor has two presets:
 * "Fast" - compresses a standard 256x256x6 cubemap in 0.02ms on NV P4000 (GPU perf in between NV GTX 1060 and NV GTX 1070). Compression quality is comparable to fast presets of offline compressors.
 * "Quality" - compresses a standard 256x256x6 cubemap in 0.528ms on on NV P4000. Compression quality is comparable to normal presets of offline compressors.
 
-Algorithms
+How It Works
 ===
-Algorithms are based on:
-* "Real-Time DXT Compression" by J.M.P. van Waveren, 2006
-* "High Quality DXT Compression using CUDA" by Ignacio Castaño, 2007
+BC6H is a pretty complex format with multiple possible block modes. To prune search space a bit one mode was selected for the fast compression setting(mode 11) and two for the quality compression setting (mode 2 and mode 6) which proved to have the best trade off between quality and performance.
 
-With some modifications for handling HDR range, new encoding modes and format, and optimizing for a perceptual error (optimizing for a log luminance error instead of a plain RGB error).
+Fast mode is based on computing a color bounding box ("Real-Time DXT Compression" by J.M.P. van Waveren, 2006), then ordering colors by a diagonal of this bounding box and using least square fit to find optimal endpoints ("High Quality DXT Compression using CUDA" by Ignacio Castaño, 2007). All computations are made in log2 space in order to optimize for perceptual error (after all resulting image will be tone mapped).
+
+Quality mode has two passes. First pass searches for a best partition by computing color bounding box per partition and computing error as distance of every texel from that line. In the second pass best partition is encoded using similar approach as the fast mode.
 
 Quality
 ===
