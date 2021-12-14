@@ -29,4 +29,4 @@ Quality compared using RMSLE (lower is better).
 
 License
 ===
-This source code is public domain. You can do anything you want with it. It would be cool if you add attribution or just let me know that you used it for some project, but it's not required.
+This work is dual-licensed under either public domain or MIT.
