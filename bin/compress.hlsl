@@ -207,7 +207,7 @@ void InsetColorBBoxP2(float3 texels[16], uint pattern, uint patternSelector, ino
 }
 
 // Least squares optimization to find best endpoints for the selected block indices
-void OptimizeEndpointsP1(float3 texels[16], inout float3 blockMin, inout float3 blockMax)
+void OptimizeEndpointsP1(float3 texels[16], inout float3 blockMin, inout float3 blockMax, in float3 blockMinNonInset, in float3 blockMaxNonInset)
 {
 	float3 blockDir = blockMax - blockMin;
 	blockDir = blockDir / (blockDir.x + blockDir.y + blockDir.z);
@@ -244,8 +244,8 @@ void OptimizeEndpointsP1(float3 texels[16], inout float3 blockMin, inout float3 
 	if (abs(det) > 0.00001f)
 	{
 		float detRcp = rcp(det);
-		blockMin = f16tof32(clamp(detRcp * (alphaTexelSum * betaSqSum - betaTexelSum * alphaBetaSum), 0.0f, HALF_MAX));
-		blockMax = f16tof32(clamp(detRcp * (betaTexelSum * alphaSqSum - alphaTexelSum * alphaBetaSum), 0.0f, HALF_MAX));
+		blockMin = clamp(f16tof32(clamp(detRcp * (alphaTexelSum * betaSqSum - betaTexelSum * alphaBetaSum), 0.0f, HALF_MAX)), blockMinNonInset, blockMaxNonInset);
+		blockMax = clamp(f16tof32(clamp(detRcp * (betaTexelSum * alphaSqSum - alphaTexelSum * alphaBetaSum), 0.0f, HALF_MAX)), blockMinNonInset, blockMaxNonInset);
 	}
 }
 
@@ -307,12 +307,14 @@ void EncodeP1(inout uint4 block, inout float blockMSLE, float3 texels[16])
 		blockMax = max(blockMax, texels[i]);
 	}
 
+	float3 blockMinNonInset = blockMin;
+	float3 blockMaxNonInset = blockMax;
 #if INSET_COLOR_BBOX
 	InsetColorBBoxP1(texels, blockMin, blockMax);
 #endif
 
 #if OPTIMIZE_ENDPOINTS
-	OptimizeEndpointsP1(texels, blockMin, blockMax);
+	OptimizeEndpointsP1(texels, blockMin, blockMax, blockMinNonInset, blockMaxNonInset);
 #endif
 
 
